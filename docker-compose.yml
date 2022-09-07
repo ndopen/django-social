@@ -1,0 +1,13 @@
+version: '1'
+
+services:
+  db:
+    image: library/postgres:13-alpine
+    environment:
+      - POSTGRES_DB=social
+      - POSTGRES_USER=social
+      - POSTGRES_PASSWORD=social
+    ports:
+      - 5432:5432
+    volumes:
+      - ./bin/datas/prostgresql/:/var/lib/postgresql/data
