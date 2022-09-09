@@ -83,8 +83,173 @@ python manage.py migrate
 
 
 ## 4.2 使用 Django 身份验证框架
+Django带有一个内置的身份验证框架，可以处理用户身份验证，会话，权限和用户组。身份验证系统包括常见用户操作（如登录、注销、密码更改和密码重置）的视图。
+
+身份验证框架位于 `django.contrib.auth` 上，并由其他 **Django** 贡献包使用。请记住，您已经在第 1 章 “构建博客应用进程”中使用了身份验证框架，为博客应用进程创建一个超级用户来访问管理站点。
+
+当您使用 startproject 命令创建新的 Django 项目时，身份验证框架将包含在项目的默认设置中。 它由 `django.contrib.auth` 应用进程和以下两个中间件类组成，这些中间件类位于项目的中间件设置中：
+- **AuthenticationMiddleware**: 使用会话将用户与请求相关联
+- **SessionMiddleware**: 跨请求处理当前会话
+
+中间件是具有在请求或响应阶段全局执行的方法的类。在本书中，您将多次使用中间件类，并将在第 14 章 “上线”中学习如何创建自定义中间件。
+
+身份验证框架还包括以下模型：
+- **User** : 具有基本字段的用户模型;此模型的主要字段是 username，password，email，first_name，last_name和is_active
+- **Group** : 用于对用户进行分类的组模型
+- **Permission** 用户或组执行某些操作的标志
+该框架还包括默认的身份验证视图和窗体，稍后您将使用它们。
 
 ### 4.2.1 创建登录视图
+我们将通过使用Django身份验证框架来允许用户登录您的网站来开始本节。您的视图应执行以下操作来登录用户：
+- 获取用户使用登录表单发布的用户名和密码
+- 根据数据库中存储的数据对用户进行身份验证
+- 检查用户是否处于活动状态
+- 将用户登录到网站并启动经过身份验证的会话
+
+首先，您将创建一个登录表单。在帐户应用进程目录中创建新的 forms.py 文档，并向其中添加以下行：
+```python
+from django import forms
+
+class LoginForm(forms.Form):
+    '''User Login forms'''
+    username = forms.CharField()
+    password = forms.CharField(widget=forms.PasswordInput)
+```
+
+此表单将用于根据数据库对用户进行身份验证。请注意，您可以使用“密码输入”小组件来呈现密码 HTML 元素。这将在 HTML 中包括 **type=“password”**，以便浏览器将其视为密码输入。
+
+编辑帐户应用进程的 **views.py** 文档，并向其中添加以下代码：
+```python
+from django.shortcuts import render
+from django.http import HttpResponse
+from .forms import LoginForm
+from django.contrib.auth import login, authenticate
+# Create your views here.
+
+def user_login(request):
+    if request.method == 'POST':
+        form = LoginForm(request.POST)
+        if form.is_valid():
+            cd = form.cleaned_data
+            user = authenticate(request, username=cd['username'], password=cd['password'])
+
+            if user is not None:
+                if user.is_active:
+                    login(request, user)
+                    return HttpResponse('Authenticated successfully')
+                else:
+                    return HttpResponse('Disabled account')
+            else:
+                return HttpResponse('Invalid login')
+    else:
+        form = LoginForm()
+
+    return render(request, 'account/login.html', {'form': form})
+```
+这就是基本登录视图的作用：当使用 GET 请求调用user_login视图时，您可以使用 form = LoginForm（） 实例化一个新的登录窗体，以将其显示在模板中。当用户通过 POST 提交表单时，您可以执行以下操作：
+- 使用提交的数据实例化表单 `form = LoginForm(request.POST)`
+- 检查表单是否对 `form.is_valid（）` 有效。如果它无效，则在模板中显示表单错误（例如，如果用户未填写其中一个字段）。
+- 如果提交的数据有效，则使用 authenticate（） 方法根据数据库对用户进行身份验证。此方法采用请求对象、用户名和密码参数，如果用户已成功通过身份验证，则返回 User 对象，否则返回 None。如果用户尚未经过身份验证，则返回原始 HttpResponse，并显示“登录无效”消息。
+- 如果用户已成功通过身份验证，则可以通过访问is_active属性来检查用户是否处于活动状态。这是Django的用户模型的一个属性。如果用户未处于活动状态，则返回显示“已禁用帐户”消息的 HttpRes响应。
+- 如果用户处于活动状态，则将用户登录到网站。您可以通过调用 login（） 方法在会话中设置用户，并返回“已成功通过身份验证”消息。
+
+> 注意身份验证和登录之间的区别：authenticate（） 检查用户凭据并返回 User 对象（如果它们正确）;login（） 设置当前会话中的用户。
+
+现在，您需要为此视图创建 URL 模式。在帐户应用进程目录中创建一个新的 urls.py 文档，并向其中添加以下代码：
+```python
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('login/', views.user_login, name='login')
+]
+
+```
+编辑位于书签项目目录中的主 **urls.py** 文档，导入包含并添加帐户应用进程的 URL 模式，如下所示：
+```python
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('account/', include('account.urls')),
+]
+```
+现在可以通过 URL 访问登录视图。是时候为此视图创建模板了。由于您没有此项目的任何模板，因此您可以从创建可由登录模板扩展的基本模板开始。在帐户应用进程目录中创建以下文档和目录：
++ templates
+ - account
+    - login.html
+ - base.html
+
+编辑`base.html`模板并向其添加以下代码：
+```python
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endblock  %}</title>
+    <link rel="stylesheet" href="{% static "css/base.css" %}">
+</head>
+<body>
+    <div id="header">
+        <span class="logo">Bookmarks</span>
+    </div>
+
+    <div id="content">
+        {% block content %}{% endblock  %}
+    </div>
+</body>
+</html>
+```
+这将是网站的**base**模板。与在上一个项目中所做的那样，在主模板中包含 CSS 样式。您可以在本章附带的代码中找到这些静态文档。将帐户应用进程的 static/ 目录从分会的源代码复制到项目中的同一位置，以便您可以使用静态文档。您可以在 https://github.com/PacktPublishing/Django-3-by-Example/tree/master/Chapter04/bookmarks/account/static
+
+base模板定义**title**和**content**块，这些标题栏和内容块可由从中延伸出来的模板填充内容。
+
+让我们填写登录表单的模板。打开 account/login.html 模板并向其添加以下代码：
+```python
+{% extends 'base.html' %}
+
+{% block title %}Log-in{% endblock  %}
+
+{% block content %}
+    <h1>
+        Log-in
+    </h1>
+    <p>
+        Please, use the following form to log-in:
+    </p>
+    <form method="post">
+        {{ form.as_p }}
+        {% csrf_token %}
+        <p>
+            <input type="submit" value="Log-in">
+        </p>
+    </form>
+{% endblock  %}
+```
+此模板包括在视图中实例化的窗体。由于您的表单将通过 POST 提交，因此您将包含 {% csrf_token %} 模板标记，用于跨站点请求伪造 （CSRF） 保护。您在第 2 章 “使用高级功能增强博客”中了解了 CSRF 保护。
+
+数据库中还没有用户。您需要先创建超级用户，以便能够访问管理站点来管理其他用户。打开命令行并执行`python manage.py createsuperuser`。填写所需的用户名、电子邮件和密码。然后，使用 `python manage.py runserver` 器命令运行开发服务器，并在浏览器中打开 http://127.0.0.1:8000/admin/ 使用刚创建的用户的凭据访问管理站点。您将看到 Django 管理站点，包括 Django 身份验证框架的用户和组模型。
+
+它看起来如下：
+![backup  Authentication User Image]()
+
+使用管理站点创建一个新用户，并在浏览器中打开 http://127.0.0.1:8000/account/login/。您应该会看到呈现的模板，包括登录表单：
+![account Log-in Form Image]()
+
+现在，提交表单，将其中一个字段留空。在这种情况下，您将看到表单无效并显示错误，如下所示：
+![account login error image]()
+
+请注意，某些现代浏览器会阻止您提交包含空白或错误字段的表单。这是因为浏览器根据字段类型和每个字段的限制执行表单验证。在这种情况下，将不会提交表单，浏览器将显示错误字段的错误消息。
+
+如果您输入了不存在的用户或错误的密码，您将收到无效的登录消息。
+
+如果输入有效的凭据，您将收到“已成功通过身份验证”消息，如下所示：
+![account login successfully image]()
+
 
 ### 4.2.2 使用 Django 身份验证视图
 
