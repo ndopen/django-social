@@ -252,8 +252,104 @@ base模板定义**title**和**content**块，这些标题栏和内容块可由�
 
 
 ### 4.2.2 使用 Django 身份验证视图
+Django在身份验证框架中包含几个表单和视图，您可以立即使用它们。您创建的登录视图是了解Django中用户身份验证过程的良好练习。但是，在大多数情况下，您可以使用默认的Django身份验证视图。
+
+Django提供了以下基于类的视图来处理身份验证。 它们都位于`django.contrib.auth.views`
+- **LoginView**: 处理登录表单并登录用户
+- **LogoutView** 注销用户
+
+Django提供了以下视图来处理密码更改：
+- **PasswordChangeView** 处理表单以更改用户的密码
+- **PasspwrdChangeDoneView** 成功更改密码后将用户重定向到的成功视图
+
+Django还包括以下视图，使用户能够重置其密码：
+- **PasswordResetView** 允许用户重置其密码。它使用令牌生成一次性链接，并将其发送到用户的电子邮件帐户。
+- **PasswordResetDoneView** 告知用户已向他们发送了一封电子邮件（包括用于重置其密码的链接）。
+- **PasswordResetConfirmView** 允许用户设置新密码。
+- **PasswordResetCompleteView** 成功重置用户密码后，用户被重定向到的成功视图。
+
+在使用用户帐户创建网站时，上述列表中列出的视图可以为您节省大量时间。视图使用可以重写的默认值，如要呈现的模板的位置或视图要使用的窗体。
+
+您可以在 https://docs.djangoproject.com/en/4.0/topics/auth/default/#all 身份验证视图中获取有关内置身份验证视图的详细信息。
 
 ### 4.2.3 登录和注销视图
+编辑帐户应用进程的 urls.py 文档，如下所示：
+```python
+from django.contrib.auth import views as auth_views
+
+urlpatterns = [
+    # path('login/', views.user_login, name='login'),
+    path('login/', auth_views.LoginView.as_view(), name='login'),
+    path('logout/', auth_views.LogoutView.as_view(), name='logout'),
+]
+```
+在上面的代码中，您注释掉了之前创建的user_login视图的 URL 模式，以使用 Django 身份验证框架的 LoginView 视图。您还可以为注销视图添加 URL 模式。
+
+在帐户应用进程的模板目录中创建一个新目录，并将其命名为**registration**。这是 Django 身份验证视图期望您的身份验证模板的默认路径。
+
+django.contrib.admin 模块包括一些用于管理站点的身份验证模板。您已将帐户应用进程放在INSTALLED_APPS设置的顶部，以便 Django 默认使用您的模板，而不是在其他应用进程中定义的任何身份验证模板。
+
+在templates/registeration 目录中创建一个新文档，将其命名为**login.html**，并向其添加以下代码：
+```python
+{% extends 'base.html' %}
+
+{% block title %}
+    Log-in
+{% endblock  %}
+
+{% block content %}
+    <h1>Log-in</h1>
+    {% if form.errors %}
+        <p>
+            Your username and password didn't match.
+            Please try again.
+        </p>
+    {% else %}
+        <p>
+            Please, use the following form to log-in:
+        </p>
+    {% endif %}
+
+    <div class="login-form">
+        <form action="" method="post">
+            {{ form.as_p }}
+            {% csrf_token %}
+
+            <input type="hidden" name="next" value="{{ next }}">
+            <p>
+                <input type="submit" value="Log-in">
+            </p>
+        </form>
+    </div>
+{% endblock  %}
+```
+此登录模板与您之前创建的模板非常相似。默认情况下，Django 使用位于**AuthenticationForm**表单。 此表单尝试对用户进行身份验证，如果登录失败，则会引发验证错误。在这种情况下，您可以使用模板中的 {% if form.errors %} 来查找错误，以检查提供的凭据是否错误。
+
+请注意，您添加了一个隐藏的 HTML `<input>`素来提交名为 `next` 的变量的值。当您在请求中传递下一个参数时，此变量首先由登录视图设置（例如，http://127.0.0.1:8000/account/login/?next=/account/）。
+
+`next`参数必须是 URL。如果给出此参数，Django登录视图将在成功登录后将用户重定向到给定的URL。
+
+现在，在注册模板目录中创建一个**logged_out.html**模板，并使其如下所示：
+```python
+{% extends 'base.html' %}
+
+{% block title %}
+    Log-out
+{% endblock  %}
+
+{% block content %}
+    <h1>Log-out</h1>
+
+    <p>
+        You have been successfully logged out.
+        You can <a href="{% url 'login' %}">log-in again</a>
+    </p>
+{% endblock  %}
+```
+这是Django在用户注销后将显示的模板。
+
+添加用于登录和注销视图的URL和模板后，您的网站现在已准备好供用户使用Django身份验证视图登录。
+
 
 ### 4.2.4 更改密码视图
 
