@@ -350,6 +350,90 @@ django.contrib.admin 模块包括一些用于管理站点的身份验证模板�
 
 添加用于登录和注销视图的URL和模板后，您的网站现在已准备好供用户使用Django身份验证视图登录。
 
+现在，您将创建一个新视图，以便在用户登录其帐户时显示仪表板。打开帐户应用进程的 views.py 文档，并向其中添加以下代码：
+```python
+from django.contrib.auth.decorators import login_required
+@login_required
+def dashboard(request):
+    return render(request, 'account/dashboard.html', {'section': 'dashboard'})
+```
+
+使用身份验证框架的login_required修饰器修饰视图。login_required装饰器检查当前用户是否已通过身份验证。如果用户已通过身份验证，它将执行修饰视图;如果用户未经过身份验证，则会将用户重定向到登录 URL，并将最初请求的 URL 作为名为 next 的 GET 参数。
+
+通过执行此操作，登录视图会将用户重定向到他们在成功登录后尝试访问的 URL。请记住，您为此目的以登录模板的形式添加了隐藏的输入。
+
+您还可以定义节变量。您将使用此变量来跟踪用户正在浏览的网站部分。多个视图可能对应于同一部分。这是定义每个视图所对应的部分的简单方法。
+
+接下来，您需要为仪表板视图创建一个模板。在**templates/account**目录中创建一个新文档，并将其命名为**dashboard.html**。让它看起来像这样：
+```python
+{% extends 'base.html' %}
+
+{% block title %}Dashboard{% endblock  %}
+
+{% block  content%}
+    <h1>Dashboard</h1>
+    <p>welcome to your Dashboard</p>
+{% endblock  %}
+```
+然后，在帐户应用进程的 urls.py 文档中添加此视图的以下 URL 模式：
+```python
+urlpatterns = [
+    path('dashboard/', views.dashboard, name='dashboard'),
+]
+```
+
+编辑项目的 settings.py 文档，并向其中添加以下代码：
+```python
+LOGIN_REDIRECT_URL = 'dashboard'
+LOGIN_URL = 'login'
+LOGOUT_URL = 'logout'
+```
+
+上述代码中定义的设置如下所示：
+- **LOGIN_REDIRECT_URL** 如果请求中不存在下一个参数，则告诉 Django 在成功登录后将用户重定向到哪个 URL
+- **LOGIN_URL** 用于重定向用户以登录的 URL（例如，使用login_required装饰器的视图）
+- **LOGOUT_URL** 重定向用户以注销的 URL
+
+您使用的是以前使用 path（） 函数的 name 属性定义的 URL 模式的名称。硬编码的 URL（而不是 URL 名称）也可用于这些设置。
+
+让我们总结一下到目前为止您所做的工作：
+- 您已将内置的 Django 身份验证登录和注销视图添加到您的项目中
+- 您已经为这两个视图创建了自定义模板，并定义了一个简单的仪表板视图，以便在用户登录后重定向用户
+- 最后，您已经将 Django 的设置配置为默认使用这些 URL
+
+现在，您将添加指向基本模板的登录和注销链接，以将所有内容放在一起。为此，您必须确定当前用户是否已登录，以便为每种情况显示适当的链接。当前用户由身份验证中间件在 `HttpRequest` 对象中设置。您可以使用请` request.user` 访问它。您将在请求中找到 User 对象，即使该用户未经过身份验证也是如此。未经身份验证的用户在请求中设置为匿名用户的实例。检查当前用户是否经过身份验证的最佳方法是访问只读属性 `is_authenticated`。
+
+编辑您的**base.html**模板，并使用标头 ID 修改`<div>`元素，如下所示：
+```python
+<div id="header">
+    <span class="logo">Bookmarks</span>
+
+    {% if request.user.is_authenticated %}
+        <ul class='menu'>
+            <li {% if section == 'dashboard' %} class='deshboard' {% endif %}>
+                <a href="{% url 'dashboard' %}"> Dashboard</a>
+            </li>
+            <li {% if section == 'images' %} class='deshboard' {% endif %}>
+                <a href="#"> IMAGES </a>
+            </li>
+            <li {% if section == 'dashboard' %} class='deshboard' {% endif %}>
+                <a href="#"> PEOPLE</a>
+            </li>
+        </ul>
+    {% endif %}
+
+    <span class="user">
+        {% if request.user.is_authenticated %}
+            Hello {{ request.user.first_name }}
+            <a href="{% url 'logout' %}"> Logout</a>
+        {% else %}
+        <a href="{% url 'login' %}">Login</a>
+        {% endif %}
+    </span>
+</div>
+```
+如上述代码所示，您仅向经过身份验证的用户显示站点的菜单。您还可以检查当前部分以将选定的类属性添加到相应的`<li>`项，以便使用CSS突出显示菜单中的当前部分。显示用户的名字和用于注销的链接（如果用户已通过身份验证），或显示用于以其他方式登录的链接。
+
 
 ### 4.2.4 更改密码视图
 
