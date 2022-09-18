@@ -434,8 +434,65 @@ LOGOUT_URL = 'logout'
 ```
 如上述代码所示，您仅向经过身份验证的用户显示站点的菜单。您还可以检查当前部分以将选定的类属性添加到相应的`<li>`项，以便使用CSS突出显示菜单中的当前部分。显示用户的名字和用于注销的链接（如果用户已通过身份验证），或显示用于以其他方式登录的链接。
 
+现在，在浏览器中打开 http://127.0.0.1:8000/account/login/。您应该会看到登录页面。输入有效的用户名和密码，然后单击“登录”按钮。您应看到以下输出：
+![account dashborad image]()
+
+您可以看到“我的仪表板”部分使用 CSS 突出显示，因为它具有选定的类。由于用户已通过身份验证，因此用户的名字将显示在标头的右侧。单击注销链接。您应该看到以下页面：
+![logout page images]()
+
+在上述屏幕截图的页面中，您可以看到用户已注销，因此，不再显示网站的菜单。现在，标题右侧的链接显示“登录”。
+
+> 如果您看到 Django 管理站点的已注销页面，而不是您自己的注销页面，请检查项目的INSTALLED_APPS设置，并确保 `django.contrib.admin` 在 `account.apps.AccountConfig` 应用进程之后出现。两个模板都位于相同的相对路径中，Django模板加载进程将使用它找到的第一个模板。
 
 ### 4.2.4 更改密码视图
+您还需要您的用户能够在登录到您的网站后更改其密码。您将集成Django身份验证视图以更改密码。
+
+打开帐户应用进程的 **urls.py** 文档，并向其添加以下 URL 模式：
+```python
+urlpatterns = [
+    path('password_change/', auth_views.PasswordChangeView.as_view(), name='password_change'),
+    path('password_change/done/', auth_views.PasswordChangeDoneView.as_view(), name='password_change_done'),
+]
+```
+`PasswordChangeView`视图将处理表单以更改密码，而`PasswordChangeDoneView`视图将在用户成功更改其密码后显示一条成功消息。让我们为每个视图创建一个模板。
+
+在帐户应用进程的*templates/registration*目录中添加一个新文档，并将其命名为**password_change_form.html**。向其添加以下代码：
+```python
+{% extends 'base.html' %}
+
+{% block title %}Change your Password{% endblock  %}
+
+{% block content %}
+    <h1>Change Your Password</h1>
+    <p>use the form below change your password</p>
+    <form method="post">
+        {{ form.as_p }}
+        <input type="submit" value="Change">
+        {% csrf_token %}
+    </form>
+{% endblock  %}
+```
+**password_change_form.html**模板包含用于更改密码的表单。
+
+现在，在同一目录中创建另一个文档，并将其命名为**password_change_done.html** 向其添加以下代码：
+```python
+{% extends 'base.html' %}
+
+{% block title %}Password changed{% endblock  %}
+
+{% block content %}
+    <h1>Password Changed</h1>
+    <p>Your Password has been successfully changed.</p>
+{% endblock  %}
+```
+**password_change_done.html**模板仅包含用户成功更改其密码时显示的成功消息。
+
+在浏览器中打开 http://127.0.0.1:8000/account/password_change/。 如果您尚未登录，浏览器会将您重定向到登录页面。成功通过身份验证后，您将看到以下更改密码页面
+![account PasswordChangeForm Image]()
+
+在表单中填写您的当前密码和新密码，然后单击“更改”按钮。您将看到以下成功页面：
+![Account PasswordChange SuccessFully Image]()
+注销并使用新密码再次登录，以验证一切是否按预期工作。
 
 ### 4.2.5 重置密码视图
 
