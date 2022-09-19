@@ -495,8 +495,163 @@ urlpatterns = [
 注销并使用新密码再次登录，以验证一切是否按预期工作。
 
 ### 4.2.5 重置密码视图
+将以下用于Password reset的 URL 模式添加到帐户应用进程的 **urls.py** 文档中：
+```python
+urlpatterns = [
+    path('login/', auth_views.LoginView.as_view(), name='login'),
+    path('logout/', auth_views.LogoutView.as_view(), name='logout'),
+    path('password_change/', auth_views.PasswordChangeView.as_view(), name='password_change'),
+    path('password_change/done/', auth_views.PasswordChangeDoneView.as_view(), name='password_change_done'),
+    path('password_reset/', auth_views.PasswordResetView.as_view(), name='password_reset'),
+    path('password_reset/done/',auth_views.PasswordResetDoneView.as_view(), name='password_reset_done'),
+    path('reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
+    path('reset/done/', auth_views.PasswordResetCompleteView.as_view(), name='password_reset_complete'),
+]
+```
+在帐户应用进程**templates/registration/**中添加一个新文档，并将其命名为**password_reset_form.html**。向其添加以下代码：
+```python
+{% extends 'base.html' %}
 
+{% block title %}
+    Reset Your Password
+{% endblock  %}
 
+{% block content %}
+    <h1>Rest Your Password</h1>
+    <p>Enter your e-mail address to obtain a new password.</p>
+
+    <form method="post">
+        {{ form.as_p }}
+        <input type="submit" value="Send e-mail">
+        {% csrf_token %}
+    </form>
+{% endblock  %}
+```
+现在，在同一目录中创建另一个文档，并将其命名为**password_reset_email**。 嗯。向其添加以下代码：
+```python
+Someone asked for password reset for email {{ email }}. Follow the link below:
+
+{{ protocol }}://{{ domain }}{% url "password_reset_confirm" uidb64=uid token=token %}
+
+Your username, in case you've forgotten: {{ user.get_username }}
+```
+password_reset_email.html模板将用于呈现发送给用户以重置其密码的电子邮件。它包括由视图生成的重置令牌。
+
+在同一目录中创建另一个文档，并将其命名为**password_reset_done.html**。 向其添加以下代码：
+```python
+{% extends 'base.html' %}
+
+{% block title %}
+    Reset your password
+{% endblock  %}
+
+{% block content %}
+    <h1>Reset your password</h1>
+    <p>We've emailed you instructions for setting your password.</p>
+    <p>If you don't receive an email, please make sure you've entered the address you registered with.</p>
+{% endblock  %}
+```
+在同一目录中创建另一个模板，并将其命名为**password_reset_confirm.html**。向其添加以下代码：
+```python
+{% extends 'base.html' %}
+
+{% block title %}
+    Reset your Password
+{% endblock  %}
+
+{% block content %}
+    <h1>Reset Your Password</h1>
+    {% if validlink %}
+        <p>please enter your new password wtice.</p>
+        <form method="post">
+            {{ form.as_p }}
+            {% csrf_token %}
+            <p><input type="submit" value="Change My Password"></p>
+        </form>
+    {% else %}
+        <p>The password reset link was invalid, possibly because it has already been used. Please request a new password reset.</p>
+    {% endif %}
+{% endblock  %}
+```
+在此模板中，您可以通过检查有效链接变量来检查重置密码的链接是否有效。视图密码重置确认视图检查 URL 中提供的令牌的有效性，并将有效链接变量传递给模板。如果链接有效，则显示用户密码重置表单。 仅当用户具有有效的重置密码链接时，他们才能设置新密码。
+
+创建另一个模板并将其命名为**password_reset_complete.html**。在其中输入以下代码：
+```python
+{% extends 'base.html' %}
+
+{% block title %}
+    Password reset
+{% endblock  %}
+
+{% block content %}
+    <h1>Password set</h1>
+    <p>Your password has been set. You can
+    <a href="{% url "login" %}">log in now</a></p>
+{% endblock  %}
+
+```
+最后，编辑帐户应用进程的 **registration/login.html** 模板，并在 `<form>` 元素后添加以下代码：
+```python
+<p><a href="{% url "password_reset"%}">Forgotten your password?</a></p>
+```
+现在，在浏览器中打开 http://127.0.0.1:8000/account/login/，然后单击 **Forgotten your password?**链接。您应该看到以下页面：
+![LoginPage Forgotten Image]()
+
+此时，您需要将简单邮件传输协议（SMTP）配置添加到项目的 settings.py 文档中，以便Django能够发送电子邮件。您在第 2 章 “使用高级功能增强博客”中学习了如何将电子邮件设置添加到项目中。但是，在开发过程中，您可以将Django配置为将电子邮件写入标准输出，而不是通过SMTP服务器发送。Django提供了一个电子邮件后端，用于将电子邮件写入控制台。编辑项目的 settings.py 文档，然后添加以下行：
+```python
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+```
+`EMAIL_BACKEND`设置指示用于发送电子邮件的类。
+```shell
+返回浏览器，输入现有用户的电子邮件地址，然后单击“SEND E-MAIL”按钮。您应该看到以下页面：
+[Reset Password done Page image]()
+
+查看运行开发服务器的控制台。您将看到生成的电子邮件，如下所示：
+```python
+System check identified no issues (0 silenced).
+September 19, 2022 - 14:42:24
+Django version 4.0.7, using settings 'bookmarks.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CONTROL-C.
+[19/Sep/2022 14:42:26] "GET /account/password_reset/ HTTP/1.1" 200 1077
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+Subject: Password reset on 127.0.0.1:8000
+From: webmaster@localhost
+To: admin@admin.com
+Date: Mon, 19 Sep 2022 14:42:39 -0000
+Message-ID: <166359855906.2745.14501718873517628110@sihairong.localdomain>
+
+Someone asked for password reset for email admin@admin.com. Follow the link below:
+
+http://127.0.0.1:8000/account/reset/MQ/bc0673-62bfb42684ced21f101d0d6f8d459076/
+
+Your username, in case you've forgotten: admin
+```
+
+电子邮件将使用您之前创建的**password_reset_email.html**模板呈现。重置密码的URL包括由Django动态生成的令牌。
+
+复制 URL 并在浏览器中打开它。您应该看到以下页面：
+![Reset Password Image]()
+
+用于设置新密码的页面使用`password_reset_confirm.html`模板。填写新密码，然后单击**CHANGE MY PASSWORD**按钮。Django创建一个新的哈希密码并将其保存在数据库中。您将看到以下成功页面：
+![Reset Password done Image]()
+
+现在，您可以使用新密码重新登录您的帐户。
+
+用于设置新密码的每个令牌只能使用一次。如果再次打开收到的链接，您将收到一条消息，指出令牌无效。
+
+现在，您已经将 Django 身份验证框架的视图集成到您的项目中。这些视图适用于大多数情况。但是，如果需要其他行为，则可以创建自己的视图。
+
+Django还提供了您刚刚创建的身份验证URL模式。您可以注释掉已添加到帐户应用进程的 urls.py 文档中的身份验证 URL 模式，并改为包含 `django.contrib.auth.urls`，如下所示：
+```python
+urlpatterns = [
+    path('', include('django.contrib.auth.urls')),
+]
+```
+
+您可以在  https://github.com/django/django/blob/stable/4.0.x/django/contrib/auth/urls.py 中看到身份验证 URL 模式。
 
 ## 4.3 用户注册和用户配置文档
 
