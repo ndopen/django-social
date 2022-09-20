@@ -654,9 +654,112 @@ urlpatterns = [
 您可以在  https://github.com/django/django/blob/stable/4.0.x/django/contrib/auth/urls.py 中看到身份验证 URL 模式。
 
 ## 4.3 用户注册和用户配置文档
+现有用户现在可以登录、注销、更改其密码和重置其密码。现在，您需要构建一个视图以允许访问者创建用户帐户。
 
 ### 4.3.1 用户注册
+让我们创建一个简单的视图，以允许用户在您的网站上注册。最初，您必须创建一个表单来让用户输入用户名，其真实姓名和密码。
+编辑位于帐户应用进程目录中的 **forms.py** 文档，并向其中添加以下代码：
+```python
+from django.contrib.auth.models import User
 
+class UserRegistrationForm(forms.ModelForm):
+    password = forms.CharField(label='Password', widget=forms.PasswordInput)
+    password2 = forms.CharField(label='Repeat Password', widget=forms.PasswordInput)
+
+    class Meta:
+        model = User
+        fields = ('username', 'first_name', 'email')
+
+    def clean_password2(self):
+        cd = self.cleaned_data
+        if cd['password'] != cd['password2']:
+            raise forms.ValidationError('Passwords don\'t match.')
+        return cd['password2']
+```
+您已经为用户模型创建了一个models form。在form中，仅包含模型的username、first_name和email字段。这些字段将根据其相应的模型字段进行验证。例如，如果用户选择已存在的用户名，则会收到验证错误，因为用户名是用 unique=True 定义的字段。
+
+您添加了两个附加字段（password 和 password2），供用户设置并确认密码。您已经定义了一个 `clean_password2（）` 方法来检查第二个密码与第一个密码，如果密码不匹配，则不让表单验证。当您通过调用表单的 `is_valid（）` 方法验证表单时，将完成此检查。您可以为任何表单域提供`clean_<fieldname>()` 方法，以便清理值或引发特定字段的表单验证错误。表单还包括一个通用的 `clean（）` 方法来验证整个表单，这对于验证相互依赖的字段非常有用。在这种情况下，您可以使用特定于字段的 `clean_password2（）` 验证，而不是重写form的 `clean（）` 方法。这样可以避免覆盖 `ModelForm` 从模型中设置的限制中获取的其他特定于字段的检查（例如，验证用户名是否唯一）。
+
+Django还提供了一个你可以使用的`UserCreationForm`，它驻留在`django.contrib.auth.forms`中，与你创建的表单非常相似。
+
+编辑帐户应用进程的 **views.py** 文档，并向其中添加以下代码：
+```python
+from .forms import LoginForm, UserRegistrationForm
+
+def register(request):
+    if request.method == 'POST':
+        user_form = UserRegistrationForm(request.POST)
+        if user_form.is_valid():
+            new_user = user_form.save(commit=False)
+            new_user.set_password(user_form.cleaned_data['password'])
+            new_user.save()
+
+            return render(request, 'account/register_done.html', {'new_user': new_user})
+
+    else:
+        user_form = UserRegistrationForm()
+    
+    return render(request, 'account/register.html', {'user_form': user_form})
+```
+创建用户帐户的视图非常简单。出于安全原因，您不是保存用户输入的原始密码，而是使用处理哈希的用户模型的 `set_password（）` 方法。
+
+现在，编辑帐户应用进程的 **urls.py** 文档，并添加以下 URL 模式：
+```python
+urlpatterns = [
+    path('register/', views.register, name='register'),
+]
+```
+
+最后，在**account/templates**目录中创建一个新模板，将其命名为**register.html**，并使其如下所示：
+```python
+{% extends 'base.html' %}
+
+{% block title %}
+    Register Your Account
+{% endblock  %}
+
+{% block content %}
+    <h1>Register Your Account</h1>
+    <p>please sign up using the following form:</p>
+
+    <form method="post">
+        {{ user_form.as_p }}
+        {% csrf_token %}
+        <p>
+            <input type="submit" value="Create my account">
+        </p>
+    </form>
+{% endblock  %}
+```
+
+在同一目录中添加模板文档，并将其命名为**register_done.html**。 向其添加以下代码：
+```python
+{% extends 'base.html' %}
+
+{% block title %}
+    Welcome
+{% endblock  %}
+
+{% block content %}
+    <h1>Welcome {{ new_user.first_name }}!</h1>
+    <p>Your account has been successfully created. Now you can <a href="{% url "login" %}">log in</a>.</p>
+{% endblock  %}
+```
+
+现在在浏览器中打开 http://127.0.0.1:8000/account/register/。您将看到您创建的注册页面：
+![Account RegisterPage image]()
+
+填写新用户的详细信息，然后单击**CREATE MY ACCOUNT**按钮。 如果所有字段都有效，则将创建用户，并且您将收到以下成功消息：
+![Account Register succees image]()
+
+单击登录链接并输入您的用户名和密码，以验证您是否可以访问您的帐户。
+
+您还可以在登录模板中添加注册链接。编辑 registration/login.html 模板并找到以下行：
+```python
+<p>Please, use the following form to log-in. If you don't have an account <a href="{% url "register" %}">register here</a></p>
+```
+
+您已使注册页面可从登录页面访问。
 ### 4.3.2 扩展用户模型
 
 #### 4.3.2.1 使用自定义用户模型
