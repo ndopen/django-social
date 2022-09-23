@@ -761,10 +761,177 @@ urlpatterns = [
 
 您已使注册页面可从登录页面访问。
 ### 4.3.2 扩展用户模型
+当您必须处理用户帐户时，您会发现Django身份验证框架的用户模型适用于常见情况。但是，用户模型附带了非常基本的字段。您可能希望扩展它以包含其他数据。执行此操作的最佳方法是创建一个配置文档模型，其中包含所有其他字段以及与 Django 用户模型的一对一关系。 一对一关系类似于参数为 unique=True 的外键字段。关系的反面是与相关模型的隐式一对一关系，而不是多个元素的管理器。 从关系的每一端，检索单个相关对象。
+
+编辑帐户应用进程的 models.py 文档，并向其中添加以下代码：
+```python
+from django.conf import settings
+from django.db import models
+
+# Create your models here.
+class Profile(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    date_of_birth = models.DateField(blank=True, null=True)
+    photo = models.ImageField(upload_to='user/%Y/%m/%d/', blank = True)
+
+    def __str__(self):
+        return f'profile for user {self.user.username}'
+```
+
+> 为了使代码保持通用，请使用 `get_user_model（）` 方法检索用户模型，并使用AUTH_USER_MODEL设置在定义模型与用户模型的关系时引用它，而不是直接引用身份验证用户模型。有关此内容的详细信息，请参阅 https://docs.djangoproject.com/en/4.0/topics/auth/customizing/#django.contrib.auth.get_user_model
+
+用户一对一字段允许您将配置文档与用户相关联。将 CASCADE 用于on_delete参数，以便在删除用户时也删除其相关配置文档。照片字段是图像字段字段。您需要安装Pillow库来处理图像。通过在 shell 中运行以下命令来安装 Pillow：
+```shell
+pip install pillow
+```
+
+要使 Django 能够提供用户通过开发服务器上传的媒体文档，请将以下设置添加到项目的 settings.py 文档中：
+```python
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media/')
+```
+**MEDIA_URL**是用于提供用户上传的媒体文档的基本URL，**MEDIA_ROOT**是用户所在的本地路径。您可以相对于项目路径动态生成路径，以使代码更加通用。
+
+现在，编辑书签项目的主 urls.py 文档并修改代码，如下所示：
+```python
+from django.conf import settings
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root = settings.MEDIA_ROOT)
+```
+这样，Django开发服务器将负责在开发期间（即当DEBUG设置设置为True时）提供媒体文档。
+
+> static（） 帮助进程函数适用于开发，但不适用于生产用途。Django在提供静态文档方面效率非常低下。永远不要在生产环境中使用 Django 提供静态文档。您将在第 14 章 “上线”中学习如何在生产环境中提供静态文档。
+打开 shell 并运行以下命令，为新模型创建数据库迁移,同步数据库：
+```shell
+python manage.py makemigrations
+python manage.py migate
+```
+
+编辑帐户应用进程的 **admin.py** 文档，并在管理站点中注册配置文档模型，如下所示：
+```python
+from django.contrib import admin
+from account.models import Profile
+
+# Register your models here.
+
+@admin.register(Profile)
+class ProfileAdmin(admin.ModelAdmin):
+    list_display = ['user', 'date_of_birth', 'photo']
+```
+
+使用 python manage.py 运行服务器命令运行开发服务器，并在浏览器中打开 http://127.0.0.1:8000/admin/。现在，您应该能够在项目的管理站点中看到配置文档模型，如下所示：
+![Backup Profile Edit image]()
+
+接下来，您将允许用户在网站上编辑其个人资料。将以下导入和模型表单添加到帐户应用进程的 forms.py 文档中：
+```python
+from django.contrib.auth.models import User
+from .models import Profile
+
+class UserEditForm(forms.ModelForm):
+    
+    class Meta:
+        model = User
+        fields = ('first_name', 'last_name', 'email')
+
+class ProfileEditForm(forms.ModelForm):
+    
+    class Meta:
+        model = Profile
+        fields = ('date_of_birth', 'photo')
+
+```
+
+这些forms如下：
+    - **UserEditForm**: 这将允许用户编辑他们的**first_name**，**last_name**和**email**，这些是内置Django用户模型的属性。
+    - **ProfileEditForm**: 这将允许用户编辑保存在自定义配置文档模型中的配置文档数据。用户将能够编辑他们的**birth date**并上传其个人资料的**photo**。
+
+编辑帐户应用进程的 **views.py** 文档并导入配置文档模型，如下所示：
+```python
+from .forms import LoginForm, ProfileEditForm, UserEditForm, UserRegistrationForm
+from .models import Profile
+```
+然后，将以下行添加到`new_user.save()` 下方的**register**视图中：
+```python
+Profile.objects.create(user = new_user)
+```
+当用户在您的网站上注册时，您将创建一个与他们关联的空个人资料。您应使用管理站点为之前创建的用户手动创建配置文档对象。
+
+现在，您将允许用户编辑其个人资料。将以下代码添加到同一文档中：
+```python
+@login_required
+def edit(request):
+    if request.method == 'POST':
+        user_form = UserEditForm(instance=request.user, data=request.POST)
+        profile_form = ProfileEditForm(instance=request.user.profile, data=request.POST, files=request.FILES)
+
+        if user_form.is_valid() and profile_form.is_valid():
+            user_form.save()
+            profile_form.save()
+    else:
+        user_form = UserEditForm(instance=request.user)
+        profile_form = ProfileEditForm(instance=request.user.profile)
+
+    return render(request, 'account/edit.html', {'user_form':user_form, 'profile_form':profile_form})
+```
+使用login_required装饰器，因为用户必须经过身份验证才能编辑其配置文档。在这种情况下，您将使用两个模型窗体：用户编辑窗体用于存储内置用户模型的数据，以及“配置文档编辑窗体”用于在自定义配置文档模型中存储其他配置文档数据。若要验证提交的数据，请执行两个窗体的 `is_valid（）` 方法。如果两个表单都包含有效数据，则保存这两个表单，并调用 `save（）` 方法来更新数据库中的相应对象。
+
+将以下 URL 模式添加到帐户应用进程的 urls.py 文档中：
+```python
+path('edit/', views.edit, name='edit')
+```
+
+最后，在**templates/account/**中为此视图创建一个模板，并将其命名为**edit.html**。向其添加以下代码：
+```python
+{% extends 'base.html' %}
+
+{% block title %}
+    Edit your account
+{% endblock  %}
+
+{% block content %}
+    <h1>Edit your account</h1>
+    <p>You can edit your account using the following form:</p>
+
+    <form method="post" enctype="multipart/form-data">
+        {{user_form.as_p}}
+        {{profile.as_p}}
+        {% csrf_token %}
+        <p><input type="submit" value="save changes"></p>
+    </form>
+{% endblock  %}
+```
+
+在上面的代码中，您可以在表单中包含 `enctype="multipart/form-data"`以启用文档上传。您可以使用 HTML 表单提交`user_form`和`profile_form`表单。
+
+从 URL http://127.0.0.1:8000/account/register/ 注册新用户并打开 http://127.0.0.1:8000/account/edit/。您应该看到以下页面：
+![Account Edit Page]()
+
+您还可以编辑仪表板页面，并包括指向编辑配置文档和更改密码页面的链接。打开 account/dashboard.html 模板并找到以下行：
+```python
+<p>Welcome to your dashboard.</p>
+```
+将前面的行替换为以下行：
+```python
+{% extends 'base.html' %}
+
+{% block title %}Dashboard{% endblock  %}
+
+{% block  content%}
+    <h1>welcome to your dashboard</h1>
+    <p>Welcome to your dashboard. You can <a href="{% url "edit" %}">edit your profile</a> or <a href="{% url "password_change" %}">change your password</a>.</p>
+{% endblock  %}
+```
+用户现在可以访问表单以从其仪表板编辑其个人资料。在浏览器中打开 http://127.0.0.1:8000/account/ 并测试新链接以编辑用户的个人资料：
+![dashboard pages]()
 
 #### 4.3.2.1 使用自定义用户模型
+Django还提供了一种用自己的自定义模型替换整个用户模型的方法。您的用户类应继承自 Django 的 `AbstractUser` 类，该类将默认用户的完整实现作为抽象模型提供。您可以在  https://docs.djangoproject.com/en/3.0/topics/auth/customizing/#substituting-a-custom-user-model 自定义用户模型中阅读有关此方法的更多信息。
+
+使用自定义用户模型将为您提供更大的灵活性，但它也可能导致与Django的身份验证用户模型交互的可插入应用进程的集成更加困难。
 
 ### 4.3.3 使用消息框架
+
 
 
 ## 4.4 构建自定义身份验证后端
