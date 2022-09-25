@@ -931,8 +931,62 @@ Django还提供了一种用自己的自定义模型替换整个用户模型的�
 使用自定义用户模型将为您提供更大的灵活性，但它也可能导致与Django的身份验证用户模型交互的可插入应用进程的集成更加困难。
 
 ### 4.3.3 使用消息框架
+当用户允许您的平台交互时，在许多情况下，您可能希望通知他们其操作的结果。Django有一个内置的消息框架，允许您向用户显示一次性通知。
 
+消息框架位于 `django.contrib.messages` 中，当您使用 `python manage.py` 启动项目创建新项目时，该框架包含在 **settings.py** 文档的默认`INSTALLED_APPS`列表中。您会注意到，您的设置文档包含一个名为 `django.contrib.messages.middleware.MessageMiddleware`,的中间件。 消息中间件设置中的中间件。
 
+**messages frameword**提供了一种向用户添加messages的简单方法。 默认情况下，消息存储在 Cookie 中（回退到会话存储），并显示在用户的下一个请求中。您可以通过导入消息模块并使用简单的快捷方式添加新消息来在视图中使用消息框架，如下所示：
+```python
+from django.contrib import messages
+messages.error(request, 'Something went wrong')
+```
+
+您可以使用 add_message（） 方法或以下任何快捷方法创建新邮件：
+    - **success** 操作成功后显示的成功消息
+    - **info** 信息性消息
+    - **warning** 有些事情还没有失败，但可能很快就会失败
+    - **error** 操作不成功或失败
+    - **debug** 调试将在生产环境中删除或忽略的消息
+
+让我们向您的平台添加消息。由于 **message frameword** 全局应用于项目，因此您可以在`base templates`中显示用户的消息。 打开帐户应用进程的**base.html**模板，并在具有**header** ID 的 <div> 元素和具有内容 ID 的 <div /> 元素之间添加以下代码：
+```python
+    {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}
+                <li class="{{ message.tags }}">
+                    {{ message | safe}}
+                    <a href="#" class="close">x</a>
+                </li>
+            {% endfor %}
+        </ul>
+{% endif %}
+```
+
+**messages frameword** 包括context处理器 `django.contrib.messages.context_processors.messages`，它将消息变量添加到request context中。您可以在项目的**tempaltes**设置的`context_processors`列表中找到它。您可以使用模板中的 messages 变量向用户显示所有现有消息。
+
+> 上下文处理器是一个 Python 函数，它将请求对象作为参数，并返回添加到请求上下文中的字典。您将在第 7 章 “构建在线商店”中学习如何创建自己的上下文处理器。
+让我们修改您的编辑视图以使用消息框架。编辑帐户应用进程的 views.py 文档，导入消息，并使编辑视图如下所示：
+```python
+from django.contrib import messages
+
+if user_form.is_valid() and profile_form.is_valid():
+    user_form.save()
+    profile_form.save()
+    messages.success(request, 'Profile updated successfully')
+
+else:
+    messages.error(request, "Error updating your profile")
+```
+
+当用户成功更新其配置文档时，将添加成功消息。如果任何表单包含无效数据，请改为添加错误消息。
+
+在浏览器中打开 http://127.0.0.1:8000/account/edit/ 并编辑您的个人资料。成功更新配置文档后，应看到以下消息：
+![Page Message success image]()
+
+当数据无效时，例如，如果出生日期字段的日期格式不正确，则应看到以下消息：
+![Page Message error image]()
+
+您可以在以下位置了解有关消息框架的更多信息：https://docs.djangoproject.com/en/4.0/ref/contrib/messages/
 
 ## 4.4 构建自定义身份验证后端
 
