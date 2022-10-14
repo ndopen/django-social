@@ -989,7 +989,66 @@ else:
 您可以在以下位置了解有关消息框架的更多信息：https://docs.djangoproject.com/en/4.0/ref/contrib/messages/
 
 ## 4.4 构建自定义身份验证后端
+Django允许您根据不同的来源进行身份验证。`AUTHENTICATION_BACKENDS`设置包括项目的身份验证后端列表。默认情况下，此设置设置如下：
+```python
+['django.contrib.auth.backends.ModelBackend']
+```
 
+默认的模型后端使用用户模型根据数据库对用户进行身份验证。这将适合您的大多数项目。但是，您可以创建自定义后端，以针对其他源**Lightweight Directory Access Protocol (LDAP)**对用户进行身份验证。
+
+您可以在以下位置阅读有关自定义身份验证的更多信息 https://docs.djangoproject.com/en/4.0/topics/auth/customizing/#other-authentication-sources
+
+每当您使用 `django.contrib.auth` 的 `authenticate（）` 函数时，Django 都会尝试逐个针对 **AUTHENTICATION_BACKENDS** 中定义的每个后端对用户进行身份验证，直到其中一个后端成功对用户进行身份验证。仅当所有后端都无法进行身份验证时，用户才会在站点中进行身份验证。
+
+Django提供了一种简单的方法来定义自己的身份验证后端。身份验证后端是提供以下两种方法的类：
+- authenticate() 它将请求对象和用户凭据作为参数。它必须返回与这些凭据匹配的用户对象（如果凭据有效）或“无”。请求参数是 HttpRequest 对象，如果未提供该参数来进行身份验证，则为“无”。
+- get_user() 这将采用用户 ID 参数，并且必须返回用户对象。
+
+创建自定义身份验证后端就像编写实现这两种方法的 Python 类一样简单。让我们创建一个身份验证后端，让用户使用其电子邮件地址而不是用户名在您的站点中进行身份验证。
+
+在帐户应用进程目录中创建一个新文档，并将其命名为 **authentication.py**。向其添加以下代码：
+```python
+from urllib import request
+from django.contrib.auth.models import User
+
+class EmailAuthBackend(object):
+
+    def authenticate(self, request, username=None, password=None):
+        try:
+            user = User.objects.get(email=username)
+            
+            if user.check_password(password):
+                return user
+            return None
+        
+        except User.DoesNotExist:
+            return None
+
+    def get_user(self, user_id):
+        try:
+            return User.objects.get(pk=user_id)
+
+        except User.DoesNotExist:
+            return None
+```
+
+上面的代码是一个简单的身份验证后端。authenticate（） 方法接收请求对象以及用户名和密码可选参数。您可以使用不同的参数，但您可以使用用户名和密码来使您的后端立即使用身份验证框架视图。上述代码的工作原理如下：
+- authenticate() 您尝试检索具有给定电子邮件地址的用户，并使用用户模型的内置check_password（） 方法检查密码。此方法处理密码哈希，以将给定的密码与数据库中存储的密码进行比较。
+- get_user() 通过user_id参数中提供的 ID 获取用户。Django 使用对用户进行身份验证的后端在用户会话期间检索 User 对象。
+
+编辑项目的 settings.py 文档并添加以下设置：
+```python
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'account.authentication.EmailAuthBackend',
+]
+```
+
+在前面的设置中，将保留用于使用用户名和密码进行身份验证的默认 ModelBackend，并包括您自己的基于电子邮件的身份验证后端。
+
+现在，在浏览器中打开 http://127.0.0.1:8000/account/login/。请记住，Django将尝试针对每个后端对用户进行身份验证，因此现在您应该能够使用您的用户名或电子邮件帐户无缝登录。 将使用 ModelBack 端身份验证后端检查用户凭据，如果未返回任何用户，将使用自定义 EmailAuthBackend 后端检查凭据。
+
+> AUTHENTICATION_BACKENDS设置中列出的后端的顺序很重要。如果相同的凭据对多个后端有效，Django 将在第一个成功对用户进行身份验证的后端停止。
 
 ## 4.5 向网站添加社交身份验证
 
