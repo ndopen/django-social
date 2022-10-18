@@ -1051,10 +1051,88 @@ AUTHENTICATION_BACKENDS = [
 > AUTHENTICATION_BACKENDS设置中列出的后端的顺序很重要。如果相同的凭据对多个后端有效，Django 将在第一个成功对用户进行身份验证的后端停止。
 
 ## 4.5 向网站添加社交身份验证
+您可能还希望使用 Facebook、Twitter 或 Google 等服务向您的网站添加社交身份验证。Python Social Auth 是一个Python模块，可简化向网站添加社交身份验证的过程。使用此模块，您可以让用户使用其他服务中的帐户登录您的网站。
+
+社交身份验证是一项广泛使用的功能，它使用户的身份验证过程更加容易。您可以在 https://github.com/python-social-auth 中找到此模块的代码。
+
+该模块带有用于不同 Python 框架（包括 Django）的身份验证后端。要通过 pip 安装 Django 包，请打开控制台并运行以下命令：
+```shell
+pip install social-auth-app-django
+```
+
+然后将social_django添加到项目 settings.py 文档中的INSTALLED_APPS设置中：
+```python
+INSTALLED_APPS = [
+    #...
+    'social_django',
+]
+```
+这是将Python社交身份验证添加到Django项目的默认应用进程。现在运行以下命令以将 Python 社交身份验证模型与数据库同步
+```shell
+python manage.py migrate
+```
+
+Python社交身份验证包括多个服务的后端。您可以在以下位置查看所有后端的列表 https://python-social-auth.readthedocs.io/en/latest/backends/index.html#supported-backends
+
+让我们包括 Facebook、Twitter和 Google 身份验证后端。
+
+您需要将社交登录 URL 模式添加到项目中。打开主网址。 书签项目的 urls.py 文档，并包含social_django URL 模式，如下所示：
+```python
+path('social-auth/', include('social_django.urls', namespace='social')),
+```
+
+一些 social 服务不允许在身份验证成功后将用户重定向到127.0.0.1或localhost;他们想要一个域名。为了使社交身份验证正常工作，您将需要一个域。要在 Linux 或 macOS 上解决此问题，请编辑您的 /etc/hosts 文档并向其添加以下行：
+```txt
+127.0.0.1 mysite.test
+```
+
+要验证您的主机名关联是否有效，请使用`python manage.py runserver` 启动开发服务器，然后在浏览器中打开 http://mysite.com:8000/account/login/。您将看到以下错误：
+![](ALLOWED_HOSTS error image)
+
+Django 使用“ALLOWED_HOSTS”设置控制能够为您的应用进程提供服务的主机。这是一项安全措施，可防止 HTTP 主机标头攻击。 Django将只允许此列表中包含的主机为应用进程提供服务。您可以在  https://docs.djangoproject.com/en/4.0/ref/settings/#allowed-hosts 了解有关ALLOWED_HOSTS设置的更多信息.
+```python
+ALLOWED_HOSTS = ['mysite.com', 'localhost', '127.0.0.1']
+```
 
 ### 4.5.1 通过 HTTPS 运行开发服务器
+您将要使用的某些社交身份验证方法需要 HTTPS 连接。传输层安全性 （TLS） 协议是通过安全连接为网站提供服务的标准。TLS 前身是安全套接字层 （SSL）。
 
-### 4.5.2 使用脸书进行身份验证
+尽管 SSL 现已弃用，但在多个库和联机文档中，您可以找到对术语 TLS 和 SSL 的引用。Django开发服务器无法通过HTTPS为您的网站提供服务，因为这不是它的预期用途。为了测试通过HTTPS为您的网站提供服务的社交身份验证功能，您将使用Django扩展包的运行服务器Plus扩展。Django扩展是Django的自定义扩展的第三方集合。请注意，这绝不是您应该在真实环境中为您的网站提供服务的方法;这是一个开发服务器。
+
+使用以下命令安装 Django 扩展：
+```shell
+
+```
+
+现在，您需要安装 Werkzeug，其中包含运行服务器增强扩展所需的调试器层。使用以下命令进行安装：
+```shell
+pip install werkzeug
+```
+
+最后，使用以下命令安装 pyOpenSSL，这是使用运行服务器增强版的 SSL/TLS 功能所必需的：
+```shell
+pip install pyOpenSSL
+```
+
+编辑项目的 settings.py 文档，并将 Django 扩展名添加到INSTALLED_APPS设置中，如下所示：
+```python
+INSTALLED_APPS = [
+    # ...
+    'django_extensions',
+]
+```
+
+使用 Django 扩展提供的管理命令runserver_plus运行开发服务器，如下所示：
+```shell
+python manage.py runserver_plus --cert-file cert.crt
+```
+
+为 SSL/TLS 证书的runserver_plus命令提供文档名。Django扩展将自动生成密钥和证书。
+
+在浏览器中打开 https://mysite.com:8000/account/login/。现在，您正在通过 HTTPS 访问您的网站。您的浏览器可能会显示安全警告，因为您使用的是自行生成的证书。如果是这种情况，请访问浏览器显示的高级信息并接受自签名证书，以便浏览器信任该证书。
+
+现在，您可以在开发期间通过HTTPS为您的网站提供服务，以便使用脸书，推特和谷歌测试社交身份验证。
+### 4.5.2 使用FACEBOOL进行身份验证
 
 ### 4.5.3 使用推特进行身份验证
 
@@ -1062,3 +1140,4 @@ AUTHENTICATION_BACKENDS = [
 
 
 ## 4.6 概述
+
