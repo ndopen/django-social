@@ -1145,9 +1145,118 @@ python manage.py runserver_plus --cert-file cert.crt
 # Chapter 5 在您的网站上分享内容
 
 ## 5.1 创建图像书签网站
+在本章中，您将学习如何允许用户为在其他网站和您的网站上找到的图像添加书签和共享这些图像。为此，您需要执行以下任务：
+1. 定义用于存储图像及其信息的模型
+2. 创建表单和视图以处理图像上传
+3. 为用户构建一个系统，以便能够发布他们在外部网站上找到的图像
+
+首先，使用以下命令在您的书签项目目录中创建一个新应用进程：
+```shell
+django-admin startapp images
+```
+
+将新应用进程添加到 settings.py 文档中的 INSTALLED_APPS 设置中，如下所示：
+```python
+INSTALLED_APPS = [
+    #
+    'images.apps.ImagesConfig'
+]
+```
+
+您已在项目中激活图像应用进程。
+
+### 5.1.1 构建**Images**模型
+编辑图像应用进程的 models.py 文档，并向其中添加以下代码：
+```python
+from django.conf import settings
+from django.db import models
+
+class Images(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='images_created', on_delete=models.CASCADE)
+    title = models.CharField(max_length=200)
+    sulg = models.SlugField(max_length=200, blank=True)
+    url = models.URLField()
+    images = models.ImageField(upload_to='images/%Y/%m/%d/')
+    description = models.TextField(blank=True)
+    created = models.DateField(auto_now_add=True, db_index=True)
 
 
-## 5.2 在管理站点中注册图像模型
+    def __str__(self):
+        return self.title
+```
+
+这是您将用于存储从不同站点检索到的图像的模型。让我们看一下此模型的字段：
+- **user** 这表示为此图像添加书签的 User 对象。这是一个外键字段，因为它指定了一对多关系：用户可以发布多个图像，但每个图像由单个用户发布。对on_delete参数使用 CASCADE，以便在删除用户时也删除相关图像。
+
+- **title** 图像的标题。
+
+- **slug** 一个简短的标签，仅包含字母，数字，下划线或连字符，用于构建漂亮的SEO友好URL。
+
+- **url** 此图像的原始 URL。
+
+- **images** 图像文档。
+
+- **description** 图像的可选说明。
+
+- **created** 指示在数据库中创建对象的日期和时间。由于您使用的auto_now_add，因此在创建对象时会自动设置此日期时间。您可以使用db_index=True，以便 Django 在数据库中为此字段创建一个索引。
+
+您将覆盖 Image 模型的 save（） 方法，以根据标题字段的值自动生成辅助信息区字段。导入 slugify（） 函数并将 save（） 方法添加到图像模型中，如下所示：
+```python
+from django.utils.text import slugify
+
+def save(self, *args, **kwargs):
+    if not self.sulg:
+        self.sulg = slugify(self.title)
+    super().save(*args, **kwargs)
+```
+在上面的代码中，您可以使用 Django 提供的 slugify（） 函数在未提供 slug 时自动生成给定标题的图像数据域。然后，保存该对象。通过自动生成辅助信息块，用户不必为每个图像手动输入数据块。
+
+### 5.1.2 创建多对多关系
+接下来，您将向 Image 模型添加另一个字段，以存储喜欢图像的用户。在这种情况下，您将需要多对多关系，因为用户可能喜欢多个图像，并且每个图像可以被多个用户喜欢。
+
+将以下字段添加到图像模型：
+```python
+users_link = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='images_linkd', blank=True)
+```
+当您定义**ManyToManyFiled**，Django使用两个模型的主键创建一个中间连接表。**ManyToManyField**可以在两个相关模型中的任何一个中定义。
+
+与外键字段一样，**ManyToManyField**的*related_name*属性允许您将关系从相关对象命名回此对象。**ManyToManyField**字段提供了一个Many-To-Many manager，允许您检索相关对象（如 image.users_like.all（），或从用户对象（如 user.images_liked.all（）） 中获取它们。
+
+您可以在以下位置了解有many-to-many关系的更多信息:[https://docs.djangoproject.com/en/4.0/topics/db/examples/many_to_many/][1]
+
+打开命令行并运行以下命令以创建初始迁移：
+```shell
+python manage.py makemigrations images
+```
+
+现在运行以下命令以应用迁移：
+```shell
+python manage.py migrate images
+```
+
+### 5.1.3 在管理站点中注册映像模型
+编辑*Images*应用进程的 admin.py 文档，并将*Images*模型注册到管理站点，如下所示：
+```python
+from django.contrib import admin
+
+from .models import Images
+
+# Register your models here.
+@admin.register(Images)
+class ImagesAdmin(admin.ModelAdmin):
+    list_display = ['title', 'sulg', 'images', 'created']
+    list_filter = ['created']
+
+```
+
+使用以下命令启动开发服务器：
+```shell
+python manage.py runserver
+```
+
+在浏览器中打开 https://127.0.0.1:8000/admin/，您将在管理站点中看到图像模型。
+
+## 5.2 从其他网站发布内容
 
 ## 5.3 为图像创建详细信息视图
 
@@ -1160,3 +1269,7 @@ python manage.py runserver_plus --cert-file cert.crt
 ## 5.7 将 AJAX 分页添加到列表视图
 
 ## 概要
+
+
+## 引用
+[1]: https://docs.djangoproject.com/en/4.0/topics/db/examples/many_to_many/ "ManyToManyFiled"
