@@ -1257,6 +1257,154 @@ python manage.py runserver
 在浏览器中打开 https://127.0.0.1:8000/admin/，您将在管理站点中看到图像模型。
 
 ## 5.2 从其他网站发布内容
+您将允许用户为来自外部网站的图像添加书签。用户将提供图像的 URL、标题和可选说明。应用进程将下载Images并在数据库中创建新的 Image 对象。
+
+让我们首先构建一个表单来提交新图像。在 Images 应用进程目录中创建一个新的 forms.py 文档，并向其中添加以下代码：
+```python
+from django import forms
+from .models import Images
+
+class ImageCreateForm(forms.ModelForm):
+    class Meta:
+        model = Images
+        fields = ('title', 'url', 'description')
+        widgets = {
+            'url':forms.HiddenInput,
+        }
+```
+
+正如您将在前面的代码中注意到的那样，此窗体是从图像模型构建的 ModelForm 窗体，仅包括标题、URL 和描述字段。用户不会直接在表单中输入图像 URL。相反，您将为他们提供一个JavaScript工具，以从外部站点中选择图像，并且您的表单将接收其URL作为参数。您可以覆盖 url 字段的默认构件以使用 `HiddenInput` 构件。此小部件呈现为具有 type=“hidden” 属性的 HTML 输入元素。之所以使用此微件，是因为您不希望此字段对用户可见。
+
+### 5.2.1 清理表单域
+为了验证提供的图像 URL 是否有效，您将检查文档名是否以 .jpg 或.jpeg扩展名结尾，以仅允许 JPEG 文档。正如你在上一章中看到的，Django 允许你定义表单方法来使用 clean_<fieldname>（） 约定来清理特定字段。当您在窗体实例上调用 is_valid（） 时，将针对每个字段（如果存在）执行此方法。在 clean 方法中，您可以根据需要更改字段的值或引发此特定字段的任何验证错误。将以下方法添加 ImageCreateForm：
+```python
+def clean_url(self):
+    url = self.cleaned_data['url']
+    valid_extensions = ['jpg', 'jpeg']
+    extensions = url.rsplit('.', 1)[1].lower()
+    if extensions not in valid_extensions:
+        raise forms.ValidationError('The given URL does not match valid image extensions.')
+
+    return url
+```
+在上面的代码中，定义了一个 clean_url（） 方法来清理 url 字段。代码的工作原理如下：
+- 您可以通过访问表单实例的cleaned_data字典来获取 url 字段的值。
+- 拆分URL以获取文档扩展名，并检查它是否是有效的扩展名之一。如果扩展无效，则引发 ValidationError，并且不会验证表单实例。在这里，您正在执行一个非常简单的验证。您可以使用更高级的方法来检查给定的 URL 是否提供了有效的图像文档。
+
+除了验证给定的 URL 外，您还需要下载图像文档并保存。例如，您可以使用处理表单的视图下载图像文档。相反，让我们采用更通用的方法，重写模型窗体的 save（） 方法，以便在每次保存窗体时执行此任务。
+
+### 5.2.2 重写**ModelForm**的 `save（）` 方法
+如您所知，ModelForm 提供了一个 save（） 方法来将当前模型实例保存到数据库并返回对象。此方法接收Boolean提交参数，该参数允许您指定是否必须将对象持久保存到数据库中。save（） 方法将返回一个模型实例，但不会将其保存到数据库中。您将覆盖表单的 save（） 方法，以便检索给定的图像并保存它。
+
+将以下 save（） 方法添加到 ImageCreateForm form中：
+```python
+    def save(self, force_insert=False, force_update=False, commit=True):
+        image = super().save(commit=False)
+        image_url = self.cleaned_data['url']
+        name = slugify(image.title)
+        exentsions = image_url.rsplit('.', 1)[1].lower()
+        image_name = f'{name}.{exentsions}'
+
+        response = request.urlopen(image_url)
+        image.image.save(image_name, ContentFile(response.read()), commit=False)
+
+        if commit:
+            image.save()
+        return image
+```
+
+您可以覆盖 save（） 方法，保留 ModelForm 所需的参数。 上述代码可以解释如下：
+- 通过使用 **commit=False** 调用表单的 `save（）` 方法来创建新的图像实例。
+- 您可以从表单的**cleaned_data**字典中获取 URL。
+- 通过将图像标题辅助信息域与原始文档扩展名组合在一起来生成图像名称。
+- 您可以使用 Python urllib 模块下载图像，然后调用图像字段的 save（） 方法，向其传递一个 ContentFile 对象，该对象使用下载的文档内容进行实例化。通过这种方式，您可以将文档保存到项目的媒体目录中。传递 save=False 参数以避免将对象保存到数据库。
+- 为了保持与重写的 save（） 方法相同的行为，仅当 commit 参数为 True 时，才将表单保存到数据库中。
+
+为了使用 [**urllib**][2] 从通过 HTTPS 提供的 URL 中检索图像，您需要安装 **Certifi** Python 包。Certifi 是根证书的集合，用于验证 SSL/TLS 证书的可信度。
+
+使用以下命令安装**certifi**：
+```shell
+pip install --upgrade certifi
+```
+
+您将需要一个视图来处理表单。编辑图像应用进程的 views.py 文档，并向其中添加以下代码：
+```python
+from django.shortcuts import redirect, render
+from django.contrib.auth.decorators import login_required
+from .forms import ImageCreateForm
+from django.contrib import messages
+
+# Create your views here.
+@login_required
+def image_create(request):
+    if request.method == 'POST':
+        form = ImageCreateForm(data=request.POST)
+        if form.is_valid():
+            # form data is valid
+            cd = form.cleaned_data
+            new_item = form.save(commit=False)
+            # assign current user to the item
+            new_item.user = request.user
+            new_item.save()
+            messages.success(request, 'Image added successfully')
+            # redirect to new created item detail view
+            return redirect(new_item.get_absolute_url())
+
+    else:
+        # build form with data provided by the bookmarklet via GET
+        form = ImageCreateForm(data=request.GET)
+
+    return render(request, 'images/image/create.html', {'section':'images', 'form':form})
+
+```
+
+在上面的代码中，您将**image_create**视图使用**login_required修饰器**来防止未经身份验证的用户访问。这是此视图的工作方式：
+1. 您希望通过GET获得初始数据，以便创建表单的实例。此数据将包括来自外部网站的图像的 url 和标题属性，并将通过您稍后创建的 JavaScript 工具通过 GET 提供。现在，您只是假设这些数据最初将存在。
+2. 如果表单已提交，请检查它是否有效。如果表单数据有效，则可以创建新的 Image 实例，但通过将 commit=False 传递给表单的 save（） 方法来阻止将对象保存到数据库中。
+3. 将当前用户分配给新的图像对象。通过这种方式，您可以知道谁上传了每张图片。
+4. 将图像对象保存到数据库中。
+5. 最后，使用 Django 消息传递框架创建一条成功消息，并将用户重定向到新映像的规范 URL。您尚未实现图像模型的 get_absolute_url（） 方法;你稍后会这样做。
+
+在图像应用进程中创建一个新的 urls.py 文档，并向其添加以下代码：
+```python
+from django.urls import path
+from . import views
+app_name = 'images'
+
+urlpatterns = [
+    path('create/', views.image_create, name='create')
+]
+```
+
+编辑书签项目的主 urls.py 文档以包含图像应用进程的模式，如下所示：
+```python
+path('images/', include('images.urls', namespace='images'))
+```
+
+您需要创建一个模板来呈现表单。在图像应用进程目录中创建以下目录结构：
++ templates/
+    + images/
+        + image/
+            + create.html
+
+编辑新的 create.html 模板，并向其添加以下代码：
+```html
+
+```
+使用 runserver_plus 运行开发服务器并打开 https://127.0.0.1:8000/images/create/?title=...&url=...，包括标题和网址 GET 参数，在后者中提供现有的 JPEG 图像网址。例如，您可以使用以下 URL：https://127.0.0.1:8000/images/create/?title=%20Django%20and%20
+Duke&url=https://upload.wikimedia.org/wikipedia/commons/8/85/Django_
+Reinhardt_and_Duke_Ellington_%28Gottlieb%29.jpg.
+
+您将看到带有图像预览的表单，如下所示：
+![ImageCreateForm images]()
+
+添加描述并单击BOOKMARK IT! 按钮。一个新的图像对象将保存在您的数据库中。但是，您将收到一个错误，指示映像模型没有 get_absolute_url（） 方法。
+
+暂时不要担心此错误;稍后将向 Image 模型添加 get_absolute_url 方法。
+
+
+
+
 
 ## 5.3 为图像创建详细信息视图
 
@@ -1271,5 +1419,6 @@ python manage.py runserver
 ## 概要
 
 
-## 引用
+
 [1]: https://docs.djangoproject.com/en/4.0/topics/db/examples/many_to_many/ "ManyToManyFiled"
+[2]: https://docs.python.org/zh-cn/3/library/urllib.html "urllib 文档"
