@@ -1402,11 +1402,176 @@ Reinhardt_and_Duke_Ellington_%28Gottlieb%29.jpg.
 
 暂时不要担心此错误;稍后将向 Image 模型添加 get_absolute_url 方法。
 
+### 5.2.3 使用 jQuery 构建书签
+书签是存储在 Web 浏览器中的书签，其中包含用于扩展浏览器功能的 JavaScript 代码。当您单击书签时，JavaScript代码将在浏览器中显示的网站上执行。这对于构建与其他网站交互的工具非常有用。书签是存储在 Web 浏览器中的书签，其中包含用于扩展浏览器功能的 JavaScript 代码。当您单击书签时，JavaScript代码将在浏览器中显示的网站上执行。这对于构建与其他网站交互的工具非常有用。
 
+一些在线服务，如Pinterest，实现了自己的书签，让用户将其他网站的内容分享到他们的平台上。让我们以类似的方式为您的网站创建一个书签，使用 jQuery 构建您的书签。jQuery是一个流行的JavaScript库，它允许你更快地开发客户端功能。您可以在其官方网站上阅读有关jQuery的更多信息：https://jquery.com/。
 
+以下是您的用户将书签添加到其浏览器并使用它的方式：
+1. 用户将链接从您的网站拖动到其浏览器的书签。该链接在其 href 属性中包含 JavaScript 代码。此代码将存储在书签中。
+2. 用户导航到任何网站并单击书签。执行书签的 JavaScript 代码。
 
+由于 JavaScript 代码将存储为书签，因此您以后将无法更新它。这是一个重要的缺点，您可以通过实现启动器脚本从 URL 加载实际的 JavaScript 书签来解决。您的用户将此启动器脚本另存为书签，并且您可以随时更新书签的代码。这是您将采用的构建书签的方法。让我们开始吧！
+
+在*images/templates/*下创建一个新模板，并将其命名为`bookmarklet_launcher.js`。这将是启动器脚本。将以下 JavaScript 代码添加到此文档：
+```js
+(function(){
+    if(window.myBookmarklet !== undefined){
+        myBookmarklet();
+    }
+    else{
+        document.body.appendChild(document.createElement('script')).src='https://127.0.0.1:8000/static/js/bookmarklet.js?r='+Math.floor(Math.random()*99999999999999999999);
+    }
+})();
+```
+
+前面的脚本通过检查是否定义了 myBookmarklet 变量来发现书签是否已加载。通过这样做，您可以避免在用户反复单击书签时再次加载它。如果未定义 myBookmarklet，则可以通过向文档添加 <script> 元素来加载另一个 JavaScript 文档。脚本标记使用随机数作为参数加载书签.js脚本，以防止从浏览器的缓存加载文档。实际的书签代码驻留在bookmarklet.js静态文档中。这允许您更新书签代码，而无需用户更新他们之前添加到浏览器中的书签。
+让我们将书签启动器添加到仪表板页面，以便您的用户可以将其复制到其书签中。编辑帐户应用进程的 account/dashboard.html 模板，使其如下所示：
+
+```python
+{% extends 'base.html' %}
+
+{% block title %}Dashboard{% endblock  %}
+
+{% block  content%}
+    <h1>welcome to your dashboard</h1>
+
+    {% with total_images_created=request.user.images_created.count %}
+        <p>
+            Wecome to your dashboard. You have bookmraked {{total_images_created}} image{{ total_images_created | pluralize}}.
+        </p>
+    {% endwith %}
+    <p>
+        Drag the following button to your bookmarks toolbar to bookmark images from other websites → <a href="javascript:{% include "bookmarklet_launcher.js" %}" class="button">Bookmark it</a>
+    </p>
+    <p>
+        You can also <a href="{% url "edit" %}">edit your profile</a> or <a href="{% url "password_change" %}">change your password</a>.
+    </p>
+{% endblock  %}
+```
+确保没有模板标签拆分为多行;Django 不支持多行标签。
+仪表板现在显示用户添加书签的图像总数。 您可以使用 {% with %} 模板标记来设置一个变量，其中包含当前用户添加书签的图像总数。您可以包含一个带有 href 属性的链接，该属性包含书签启动器脚本。您将包含来自bookmarklet_launcher.js模板的此 JavaScript 代码。
+在浏览器中打开 https://127.0.0.1:8000/account/ 进行测试页面是否正常访问。
+
+现在在图像应用进程目录中创建以下目录和文档：
+- static/
+    - js/
+        - bookmarklet.js
+
+编辑*bookmarklet.js*静态文档，并向其添加以下 JavaScript 代码：
+```js
+(function(){
+    var jquery_version = '3.4.1';
+    var site_url = 'https://127.0.0.1:8000';
+    var static_url = site_url + 'static/'
+    var min_width = 100;
+    var min_height = 100;
+
+    function bookmarklet(msg) {
+        // Here goes our bookmarklet code
+    }
+
+    // Check if jQuery is loaded
+    if (typeof window.jQuery != 'undefined') {
+        bookmarklet()
+    }else {
+        // check for conflice
+        var conflicts = typeof window.$ != 'undefined';
+        // Create the script and point to Google API
+        var script = document.createElement('script');
+        script.src = '//ajax.googleapis.com/ajax/libs/jquery/' + jquery_version + '/jquery.min.js';
+        // Add the script to the 'head' for processing
+        document.head.appendChild(script);
+        // Create a way to wait until script loading
+        var attempts = 15;
+        (function(){
+            // Check again if jQuery is undefined
+            if(typeof window.jQuery == 'undefined') {
+            if(--attempts > 0) {
+            // Calls himself in a few milliseconds
+            window.setTimeout(arguments.callee, 250)
+            } else {
+            // Too much attempts to load, send error
+            alert('An error occurred while loading jQuery')
+            }
+            } else {
+            bookmarklet();
+            }
+        })();
+    }
+})()
+```
+
+这是主要的jQuery加载器脚本。如果 jQuery 已经加载到当前网站上，它会负责使用 jQuery。如果未加载jQuery，脚本将从Google的内容交付网络（CDN）加载jQuery，该网络托管流行的JavaScript框架。当 jQuery 被加载时，它会执行 bookmarklet（） 函数，该函数将包含你的书签代码。另外，在文档顶部设置一些变量：
+- **jQuery** 要加载的 jQuery 版本
+- **site_url and static_url** 网站的基本网址和静态文档的基本网址
+- **min_width and min_height** 您的书签将尝试在网站上找到的图像的最小宽度和高度（以像素为单位）
+
+现在让我们实现书签函数。编辑 bookmarklet（） 函数使其看起来像这样：
+```js
+// load CSS
+var css = jQuery('<link>');
+css.attr({
+    rel: 'stylesheet',
+    type: 'text/css',
+    href: static_url + 'css/bookmarklet.css?r=' + Math.floor(Math.random()*99999999999999999999)
+});
+jQuery('head').append(css);
+// load HTML
+box_html = '<div id="bookmarklet"><a href="#" id="close">&times;</a><h1>Select an image to bookmark:</h1><div class="images"></div></div>';
+jQuery('body').append(box_html);
+// close event
+jQuery('#bookmarklet #close').click(function(){
+    jQuery('#bookmarklet').remove();
+});
+```
+
+上述代码的工作原理如下：
+- 您可以使用随机数作为参数加载`bookmarklet.css`样式表，以防止浏览器返回缓存文档。
+- 将自定义 HTML 添加到当前网站的文档`<body>`元素。它由一个 `<div>` 元素组成，该元素将包含在当前网站上找到的图像
+- 您可以添加一个事件，当用户单击 HTML 块的关闭链接时，该事件会从文档中删除您的 HTML。您可以使用#bookmarklet #close选择器查找 ID 名为 close 的 HTML 元素，该元素具有 ID 名为 bookmarklet 的父元素。jQuery选择器允许你查找HTML元素。jQuery 选择器返回给定 CSS 选择器找到的所有元素。你可以在 https:// api.jquery.com/category/selectors/ 找到jQuery选择器的列表。
+
+加载书签的CSS样式和HTML代码后，您需要在网站上找到图像。在 bookmarklet（） 函数的底部添加以下 JavaScript 代码：
+```js
+// find images and display them
+jQuery.each(jQuery('img[src$="jpg"]'), function(index, image) {
+    if (jQuery(image).width() >= min_width && jQuery(image).height() >= min_height)
+    {
+        image_url = jQuery(image).attr('src');
+        jQuery('#bookmarklet .images').append('<a href="#"><img src="'+ image_url +'" /></a>');
+    }
+});
+```
+
+前面的代码使用 img[src$=“jpg”] 选择器来查找所有 <img> HTML 元素，其 src 属性以 jpg 字符串结束。这意味着您将搜索当前网站上显示的所有 JPEG 图像。您可以使用 jQuery 的 each（） 方法迭代结果。将大小大于使用 min_width 和 min_height 变量指定的图像添加到 <div class=“images”> HTML 容器中。
+
+出于安全原因，您的浏览器将阻止您在通过HTTPS提供的站点上通过HTTP运行书签。您需要能够在任何站点上加载书签，包括通过HTTPS保护的站点。要使用自动生成的 SSL/TLS 证书运行开发服务器，您将使用您在上一章中安装的 Django 扩展中的 RunServerPlus。
+
+HTML 容器包含可添加书签的图像。您希望用户单击所需的图像并将其添加为书签。编辑 js/bookmarklet.js 静态文档，并在 bookmarklet（） 函数的底部添加以下代码：
+```js
+// when an image is selected open URL with it
+jQuery('#bookmarklet .images a').click(function(e){
+    selected_image = jQuery(this).children('img').attr('src');
+    // hide bookmarklet
+    jQuery('#bookmarklet').hide();
+    // open new window to submit the image
+    window.open(site_url +'images/create/?url='+ encodeURIComponent(selected_image) + '&title=' + encodeURIComponent(jQuery('title').text()), '_blank');
+});
+```
+
+上述代码的工作原理如下：
+1. 将 click（） 事件附加到每个图像的链接元素。
+2. 当用户单击图像时，您可以设置一个名为selected_image的新变量，其中包含所选图像的 URL。
+3. 您可以隐藏书签，并打开一个新的浏览器窗口，其中包含用于为网站上的新图像添加书签的 URL。您将网站的`<title>`元素的内容和选定的图像 URL 作为 GET 参数传递。
+
+使用浏览器打开一个新 URL，然后再次单击书签以显示图像选择框。如果单击图像，您将被重定向到图像创建页面，将网站的标题和所选图像的URL作为GET参数传递：
+![create bookmark images]()
+祝贺！这是你的第一个 JavaScript 书签，它完全集成到你的 Django 项目中。
 
 ## 5.3 为图像创建详细信息视图
+
+
+
 
 ## 5.4 创建图像缩列图
 
