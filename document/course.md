@@ -1567,9 +1567,66 @@ jQuery('#bookmarklet .images a').click(function(e){
 祝贺！这是你的第一个 JavaScript 书签，它完全集成到你的 Django 项目中。
 
 ## 5.3 为图像创建详细信息视图
+现在，让我们创建一个简单的详细信息视图来显示已保存到站点中的图像。打开图像应用进程的 views.py 文档，并向其中添加以下代码：
+```python
+from django.shortcuts import get_object_or_404
+def image_detail(requset, id, slug):
+    """image detail function"""
+    image = get_object_or_404(Image, id=id, slug=slug)
+    return render(requset, 'images/image/detail.html', {'image':image, 'section' : 'images'})
+```
+这是显示图像的简单视图。编辑图像应用进程的 urls.py 文档并添加以下 URL 模式：
+```python
+path('detail/<int:id>/<slug:slug>/', views.image_detail, name='detail')
+```
 
+编辑图像应用进程的 models.py 文档，并将 get_absolute_url（） 方法添加到图像模型中，如下所示：
+```python
+from django.urls import reverse
 
+def get_absolute_url(self):
+    """images detail absolute route"""
+    return reverse("images:detail", args=[self.id, self.slug])
+```
 
+请记住，为对象提供规范 URL 的常见模式是在模型中定义 get_absolute_url（） 方法。
+
+最后，在图像应用进程的 /images/image/ template目录中创建一个模板，并将其命名为 detail.html。向其添加以下代码：
+```html
+{% extends 'base.html' %}
+{% block title %} {{image.title}} {% endblock  %}
+
+{% block content %}
+    <h1> {{ image.title}} </h1>
+    <img src="{{ image.image.url }}" alt="{{ image.title}}" class="image-detail">
+    {% with total_likes as image.users_like.count  %}
+        <div class="image-info">
+            <div>
+                <span class="count">
+                    {{total_likes}} like {{total_likes | pluralize}}
+                </span>
+            </div>
+            {{ image.description }}
+
+        </div>
+
+        <div class="image-links">
+            {% for user in image.users_like.all %}
+                <div>
+                    <img src="{{ user.profile.photo.url }}" alt="{{ user.first_name }}">
+                    <p>{{ user.first_name }}</p>
+                </div>
+            {% empty %}
+                Nobody likes this image yet.
+            {% endfor %}
+        </div>
+    {% endwith %}
+{% endblock  %}
+```
+
+这是用于显示已添加书签的图像的详细信息视图的模板。您可以使用 {% with %} 标记来存储 QuerySet 的结果，在名为 total_likes 的新变量中计算所有用户喜欢。通过这样做，可以避免两次评估同一 QuerySet。您还可以包括映像说明并循环访问映像。 users_like.all 以显示所有喜欢此图像的用户。
+
+> 每当需要在模板中重复查询时，请使用 {% with %} 模板标记以避免其他数据库查询。
 
 ## 5.4 创建图像缩列图
 
