@@ -1391,9 +1391,7 @@ path('images/', include('images.urls', namespace='images'))
 ```html
 
 ```
-使用 runserver_plus 运行开发服务器并打开 https://127.0.0.1:8000/images/create/?title=...&url=...，包括标题和网址 GET 参数，在后者中提供现有的 JPEG 图像网址。例如，您可以使用以下 URL：https://127.0.0.1:8000/images/create/?title=%20Django%20and%20
-Duke&url=https://upload.wikimedia.org/wikipedia/commons/8/85/Django_
-Reinhardt_and_Duke_Ellington_%28Gottlieb%29.jpg.
+使用 runserver_plus 运行开发服务器并打开 https://127.0.0.1:8000/images/create/?title=...&url=...，包括标题和网址 GET 参数，在后者中提供现有的 JPEG 图像网址。例如，您可以使用以下 URL：https://127.0.0.1:8000/images/create/?title=%20Django%20and%20Duke&url=https://upload.wikimedia.org/wikipedia/commons/8/85/Django_Reinhardt_and_Duke_Ellington_%28Gottlieb%29.jpg.
 
 您将看到带有图像预览的表单，如下所示：
 ![ImageCreateForm images]()
