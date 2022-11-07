@@ -1628,7 +1628,61 @@ def get_absolute_url(self):
 
 > 每当需要在模板中重复查询时，请使用 {% with %} 模板标记以避免其他数据库查询。
 
-## 5.4 创建图像缩列图
+## 5.4 使用[**easy-thumbnails**][3]创建图像缩略图
+您在详情页面上显示的是原始图片，但不同图片的尺寸可能会有很大差异。此外，某些图像的原始文档可能很大，加载它们可能需要很长时间。以统一方式显示优化图像的最佳方法是生成缩略图。为此，让我们使用一个名为easy-thumbnails的Django应用进程。每当需要在模板中重复查询时，请使用 {% with %} 模板标记以避免其他数据库查询。
+
+使用以下命令打开终端并安装[easy-thumbnails][3]：
+```shell
+
+```
+编辑书签项目的 settings.py 文档，将 easy_thumbnails 添加到 INSTALLED_APPS 设置中，如下：
+```python
+
+```
+
+然后，运行以下命令将应用进程与数据库同步：
+```shell
+python manage.py migrate
+```
+
+easy-thumbnails 应用进程为您提供了定义图像缩略图的不同方法。如果您想在模型中定义缩略图，应用进程提供 {% thumbnail %} 模板标签以在模板中生成缩略图和自定义 ImageField。使用模板标记方法,编辑 *images/image/detail.html* 模板并查找以下行：
+```shell
+<img src="{{ image.image.url }}" class="image-detail">
+```
+以下行应替换前一行：
+```python
+
+```
+定义具有 300 像素固定宽度和灵活高度的缩略图，以使用值 0 保持纵横比。用户首次加载此页面时，将创建一个缩略图。缩略图存储在原始文档的同一目录中。该位置由 MEDIA_ROOT 设置和 Image 模型的 image 字段的 upload_toattribute 定义。
+
+他生成的缩略图在以下请求中提供。启动开发服务器并访问现有映像的映像详细信息页面。缩略图将生成并显示在网站上。如果您检查生成图像的 URL，您将看到原始文档名后面是用于创建缩略图的设置的其他详细信息；例如 *filename.jpg.300x0_q85.jpg.85*。
+
+您可以使用质量参数使用不同的质量值。要设置最高 JPEG 质量，您可以使用值 100，例如 {% thumbnail image.image 300x0 quality=100 %}。
+
+简易缩略图应用进程提供了多个选项来自定义缩略图，包括裁剪算法和可以应用的不同效果。如果在生成缩略图时遇到任何困难，可以将 `THUMBNAIL_DEBUG = True` 添加到 settings.py 文档中以获取调试信息。您可以在 https://easy-thumbnails.readthedocs.io/ 阅读简易缩略图的完整文档。
+
+现在让我们将 AJAX 操作添加到您的应用进程。 AJAX 来自异步 JavaScript 和 XML，包含一组用于发出异步 HTTP 请求的技术。它包括从服务器异步发送和检索数据，而无需重新加载整个页面。尽管名称如此，但 XML 不是必需的。您可以发送或检索其他格式的数据，例如 JSON、HTML 或纯文本。
+
+您将添加指向图像详细信息页面的链接，以允许用户单击它以喜欢图像。您将使用 AJAX 调用执行此操作，以避免重新加载整个页面。
+
+首先，创建一个视图供用户喜欢/不喜欢图像。编辑图像应用进程的 views.py 文档，并向其中添加以下代码：
+```python
+
+```
+在您的视图方法中使用了两个装饰器，login_required 装饰器可防止未登录的用户访问此视图，如果 HTTP 请求不是通过 POST 完成的，*require_POST* 装饰器会返回一个 *HttpResponseNotAllowed* 对象（状态码 405）。这样，您只允许对此视图的 POST 请求。
+
+Django 还提供了一个只允许 GET 请求的require_GET装饰器和一个require_http_methods装饰器，您可以将允许的方法列表作为参数传递给它。
+在此视图中，使用两个 POST 参数：
+- **image_id** 用户对其执行操作的图像对象的 ID
+- **action** 用户想要执行的操作，假定该操作是值相似或相似的字符串
+
+您可以使用 Django 为图像模型的users_like多对多字段提供的管理器，以便使用 add（） 或 remove（） 方法在关系中添加或删除对象。调用 add（），即传递相关对象集中已存在的对象，不会复制它。调用 remove（） 并传递不在相关对象集中的对象不执行任何操作。多对多管理器的另一个有用方法是 clear（），它从相关对象集中删除所有对象。最后，您使用 Django 提供的 JsonResponse 类，该类返回具有应用进程/json 内容类型的 HTTP 响应，将给定的对象转换为 JSON 输出。
+编辑图像应用进程的 urls.py 文档，并向其添加以下 URL 模式：
+```python
+
+```
+
+
 
 ## 5.5 使用AJAX 操作查询
 
@@ -1642,3 +1696,4 @@ def get_absolute_url(self):
 
 [1]: https://docs.djangoproject.com/en/4.0/topics/db/examples/many_to_many/ "ManyToManyFiled"
 [2]: https://docs.python.org/zh-cn/3/library/urllib.html "urllib 文档"
+[3]: https://github.com/SmileyChris/easy-thumbnails "easy-thumbnails Github"
