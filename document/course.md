@@ -1661,13 +1661,29 @@ easy-thumbnails 应用进程为您提供了定义图像缩略图的不同方法�
 
 简易缩略图应用进程提供了多个选项来自定义缩略图，包括裁剪算法和可以应用的不同效果。如果在生成缩略图时遇到任何困难，可以将 `THUMBNAIL_DEBUG = True` 添加到 settings.py 文档中以获取调试信息。您可以在 https://easy-thumbnails.readthedocs.io/ 阅读简易缩略图的完整文档。
 
+## 5.5 使用AJAX 操作查询
 现在让我们将 AJAX 操作添加到您的应用进程。 AJAX 来自异步 JavaScript 和 XML，包含一组用于发出异步 HTTP 请求的技术。它包括从服务器异步发送和检索数据，而无需重新加载整个页面。尽管名称如此，但 XML 不是必需的。您可以发送或检索其他格式的数据，例如 JSON、HTML 或纯文本。
 
 您将添加指向图像详细信息页面的链接，以允许用户单击它以喜欢图像。您将使用 AJAX 调用执行此操作，以避免重新加载整个页面。
 
 首先，创建一个视图供用户喜欢/不喜欢图像。编辑图像应用进程的 views.py 文档，并向其中添加以下代码：
 ```python
-
+@login_required
+@require_POST
+def image_link(request):
+    image_id = request.POST.get('id')
+    action = request.POST.get('action')
+    if image_id & action:
+        try:
+            image = Image.objects.get(id = image_id)
+            if action == "link":
+                image.users_like.add(request.user)
+            else:
+                image.users_like.remove(request.user)
+            return JsonResponse({'status' : 'ok'})
+        except:
+            pass
+    return JsonResponse({'status' : 'error'})
 ```
 在您的视图方法中使用了两个装饰器，login_required 装饰器可防止未登录的用户访问此视图，如果 HTTP 请求不是通过 POST 完成的，*require_POST* 装饰器会返回一个 *HttpResponseNotAllowed* 对象（状态码 405）。这样，您只允许对此视图的 POST 请求。
 
@@ -1679,16 +1695,198 @@ Django 还提供了一个只允许 GET 请求的require_GET装饰器和一个req
 您可以使用 Django 为图像模型的users_like多对多字段提供的管理器，以便使用 add（） 或 remove（） 方法在关系中添加或删除对象。调用 add（），即传递相关对象集中已存在的对象，不会复制它。调用 remove（） 并传递不在相关对象集中的对象不执行任何操作。多对多管理器的另一个有用方法是 clear（），它从相关对象集中删除所有对象。最后，您使用 Django 提供的 JsonResponse 类，该类返回具有应用进程/json 内容类型的 HTTP 响应，将给定的对象转换为 JSON 输出。
 编辑图像应用进程的 urls.py 文档，并向其添加以下 URL 模式：
 ```python
-
+path('link', views.image_link, name='link')
+```
+### 5.3.1 加载 jQuery
+您需要将 AJAX 功能添加到图像详细信息模板。为了在模板中使用jQuery，您将首先将其包含在项目的**base.html**中。编辑帐户应用进程的**base.html**模板，并在结束</body> HTML 标记之前包含以下代码：
+```js
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script>    
+        $(document).ready(function(){
+          {% block domready %}
+          {% endblock %}
+        });
+      </script>
 ```
 
+您从 Google 的 CDN 加载 jQuery 框架。您也可以从 https://jquery.com/ 下载jQuery 并将其添加到应用进程的静态目录中。
 
+您可以添加<script>标记以包含 JavaScript 代码 `$（document）.ready（）` 是一个 jQuery 函数，它采用在完全构造文档对象模型 （DOM） 层次结构时执行的处理进程。DOM 由浏览器在加载网页时创建，并构造为对象树。通过在此函数中包含代码，您将确保要与之交互的所有 HTML 元素都加载到 DOM 中。您的代码只会在 DOM 准备就绪后执行。
 
-## 5.5 使用AJAX 操作查询
+在文档就绪处理进程函数中，你包含一个名为`domready`的Django模板块，其中扩展基本模板的模板将能够包含特定的JavaScript。不要被 JavaScript 代码和 Django 模板标签所迷惑。Django 模板语言在服务器端呈现，输出最终的 HTML 文档，JavaScript 在客户端执行。在某些情况下，使用 Django 动态生成 JavaScript 代码很有用，以便能够使用 QuerySet 或服务器端计算的结果来定义 JavaScript 中的变量。
+
+本章中的示例包括 Django 模板中的 JavaScript 代码。包含 JavaScript 代码的首选方法是加载.js文档，这些文档作为静态文档提供，尤其是当它们是大型脚本时。
+
+### 5.3.2 AJAX 请求中的跨站点请求伪造
+您在第 2 章 “使用高级功能增强博客”中了解了跨站点请求伪造 （CSRF）。激活 CSRF 保护后，Django 会在所有 POST 请求中检查 CSRF 令牌。提交表单时，可以使用 `{% csrf_token %}` template 标记将令牌与表单一起发送。但是，对于 AJAX 请求来说，在每个 POST 请求中将 CSRF 令牌作为 POST 数据传递有点不方便。因此，Django 允许你在 AJAX 请求中使用 CSRF 令牌的值设置一个自定义的 X-CSRFToken 标头。这使您能够设置 jQuery 或任何其他 JavaScript 库，以在每个请求中自动设置 X-CSRFToken 标头。
+
+为了在所有请求中包含令牌，您需要执行以下步骤：
+1. 从 csrftoken cookie 中检索 CSRF 令牌，如果 CSRF 保护处于活动状态则设置
+2. 使用 X-CSRFToken 标头在 AJAX 请求中发送令牌
+
+您可以在以下位置找到有关 CSRF 保护和 AJAX 的更多信息:[https://docs.djangoproject.com/en/4.0/ref/csrf/#ajax][4]
+
+编辑您在 base.html 模板中包含的最后一个代码，使其如下所示：
+```js
+    <script src="https://cdn.jsdelivr.net/npm/js-cookie@2.2.1/src/js.cookie.min.js"></script>
+    <script>
+        var csrftoken = Cookies.get('csrftoken');
+        function csrfSafeMethod(method) {
+          // these HTTP methods do not require CSRF protection
+          return (/^(GET|HEAD|OPTIONS|TRACE)$/.test(method));
+        }
+        $.ajaxSetup({
+          beforeSend: function(xhr, settings) {
+            if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+              xhr.setRequestHeader("X-CSRFToken", csrftoken);
+            }
+          }
+        });
+        ...
+      </script>
+```
+
+前面的代码如下：
+1. 您从公共 CDN 加载 JS Cookie 插件，以便您可以轻松地与 cookie 交互。 JS Cookie 是用于处理 cookie 的轻量级 JavaScript API。您可以在 https://github.com/js-cookie/js-cookie 了解更多信息。
+2. 您可以使用 `Cookies.get（）` 读取 csrftoken cookie 的值。
+3. 您定义 `csrfSafeMethod()` 函数来检查 HTTP 方法是否安全。安全方法不需要 CSRF 保护——它们是 GET、HEAD、OPTIONS 和 TRACE。
+4. 您使用 `$.ajaxSetup()` 设置 jQuery AJAX 请求。在执行每个 AJAX 请求之前，请检查请求方法是否安全，以及当前请求是否跨域。如果请求不安全，则使用从 cookie 获取的值设置 X-CSRFToken 标头。此设置将适用于使用 jQuery 执行的所有 AJAX 请求。
+
+CSRF 令牌将包含在所有使用不安全 HTTP 方法（例如 POST 或 PUT）的 AJAX 请求中。
+
+### 5.3.3 使用 jQuery 执行 AJAX 请求
+编辑图像应用进程的 **images/image/detail.html** 模板并考虑以下行：
+```python
+{% with total_likes=image.users_like.count %}
+```
+
+将前一行替换为以下行：
+```python
+{% with total_likes=image.users_like.count users_like=image.users_like.all %}
+```
+
+确保模板代码拆分为多行。
+替换定义 for 循环的行：
+```python
+{% for user in image.users_like.all %}
+```
+与以下一个：
+```python
+{% for user in users_like %}
+```
+然后，修改 <div> 带有 image-info 类的元素，如下所示：
+```python
+<div class="image-info">  
+    <div>    
+        <span class="count">
+            <span class="total">{{ total_likes }}</span>      
+            like{{ total_likes|pluralize }}    
+        </span>
+            <a href="#" data-id="{{ image.id }}" data-action="{% if request.user in users_like %}un{% endif %}like"class="like button">{% if request.user not in users_like %}Like{% else %}Unlike{% endif %}</a>  
+        </div>  
+        
+        {{ image.description|linebreaks }}
+</div>
+```
+首先，您将另一个变量添加到 `{% with %}` 模板标签，以存储 `image.users_like.all` 查询的结果并避免执行两次。您将变量用于迭代喜欢此图像的用户的 for 循环。
+
+您显示喜欢该图像的用户总数，并包含一个喜欢/不喜欢该图像的链接。根据用户与此图像之间的当前关系，检查用户是否在 `users_like` 的相关对象集中以显示喜欢或不喜欢。您将以下属性添加到 </a> HTML 元素：
+- `data-id` 显示的图像的 ID。
+- `data-action` 用户单击链接时要运行的操作。这可以是相似的，也可以是不像的。
+
+> 任何 HTML 元素的属性名称以 data- 开头的任何属性都是数据属性。数据属性用于存储应用进程的自定义数据。
+
+您将在 AJAX 请求中将这两个属性的值发送到 image_like view。当用户点击赞/不赞链接时，您将在客户端执行以下操作：
+1. 调用 AJAX 视图，向其传递映像 ID 和操作参数
+2. 如果AJAX请求成功，则更新<a> 的data-action属性。具有相反动作（喜欢/不喜欢）的 HTML 元素，并相应地修改其显示文本
+3. 更新显示的点赞总数
+
+使用以下 JavaScript 代码在 **images/image/detail.html** 模板底部添加 domready 块：
+```js
+{% block domready %}
+  $('a.like').click(function(e){
+    e.preventDefault();
+    $.post('{% url "images:like" %}',
+      {
+        id: $(this).data('id'),
+        action: $(this).data('action')
+      },
+      function(data){
+        if (data['status'] == 'ok')
+        {
+          var previous_action = $('a.like').data('action');
+
+          // toggle data-action
+          $('a.like').data('action', previous_action == 'like' ?
+          'unlike' : 'like');
+          // toggle link text
+          $('a.like').text(previous_action == 'like' ? 'Unlike' :
+          'Like');
+
+          // update total likes
+          var previous_likes = parseInt($('span.count .total').text());
+          $('span.count .total').text(previous_action == 'like' ?
+          previous_likes + 1 : previous_likes - 1);
+        }
+      }
+    );
+  });
+{% endblock %}
+```
+上述代码的工作原理如下：
+1. 您可以使用 `$（'a.like'）` jQuery 选择器来查找具有 like 类的 HTML 文档的所有 <a> 元素。
+2. 您为 click 事件定义一个处理函数。每次用户点击喜欢/不喜欢链接时，都会执行此功能。
+3. 在处理进程函数中，使用 `e.preventDefault（）` 来避免 <a> 元素的默认行为。这将阻止链接将您带到任何地方。
+4. 您可以使用 `$.post（）` 对服务器执行异步 POST 请求。jQuery还提供了`$.get（）`方法来执行GET请求和低级`$.ajax（）`方法。
+5. 您使用 Django 的 {% url %} 模板标签来构建 AJAX 请求的 URL。
+6. 构建要在请求中发送的 POST 参数字典。这些参数是 Django 视图所期望的 ID 和action参数。您可以从 <a> 元素的数据 ID 和数据操作属性中检索这些值。
+7. 定义在收到 HTTP 响应时执行的回调函数;它采用包含响应内容的数据属性。
+8. 您访问接收到的数据的状态属性并检查它是否等于正常。如果返回的数据符合预期，则切换链接及其文本的数据操作属性。这允许用户撤消其操作。
+9. 您可以将总赞数增加或减少 1，具体取决于执行的操作。
+
+在浏览器中打开图片详情页面，查看已上传的图片。您应该能够看到以下初始喜欢计数和“赞”按钮;
+在对 JavaScript 进行编程时，尤其是在执行 AJAX 请求时，建议您使用工具来调试 JavaScript 和 HTTP 请求。大多数现代浏览器都包含用于调试JavaScript的开发人员工具。通常，您可以右键单击网站上的任意位置，然后单击“检查元素”以访问 Web 开发人员工具。
 
 ## 5.6 为视图创建自定义装饰器
+让我们限制您的 AJAX 视图，以仅允许通过 AJAX 生成的请求。Django 请求对象提供了一个 is_ajax（） 方法，用于检查请求是否是使用 XMLHttpRequest 发出的，这意味着它是一个 AJAX 请求。此值在 `HTTP_X_REQUESTED_WITH` HTTP 标头中设置，大多数 JavaScript 库都包含在 AJAX 请求中。
+
+接下来，您将创建一个修饰器，用于检查视图中的HTTP_X_REQUESTED_WITH标题。装饰器是一个函数，它采用另一个函数并扩展后者的行为而不显式修改它。如果装饰器的概念对您来说很陌生，您可能需要在继续阅读之前先看看 https://www.python.org/dev/peps/pep-0318/。
+
+由于您的装饰器将是通用的并且可以应用于任何视图，因此您将在项目中创建一个通用的 Python 包。在书签项目目录中创建以下目录和文档：
++ common/
+    + __init__.py
+    + decorators.py
+
+编辑 decorators.py 文档并向其中添加以下代码：
+```python
+def ajax_required(f):
+    def wrap(request, *args, **kwargs):
+        if not request.is_ajax():
+            return HttpResponseBadRequest
+
+        return f(request, *args, **kwargs)
+    wrap.__doc__ = f.__doc__
+    wrap.__name__ = f.__name__
+
+    return wrap
+```
+前面的代码是自定义ajax_required修饰器。它定义了一个包装函数，如果请求不是 AJAX，则返回 HttpResponseBadRequest 对象（HTTP 400 代码）。否则，它将返回修饰的函数。
+
+现在，您可以编辑图像应用进程的 views.py 文档，并将此修饰器添加到image_like AJAX 视图中，如下所示：
+```python
+from common.decorators import ajax_required
+
+@ajax_required
+
+from django.http import HttpResponseBadRequest
+```
+如果您尝试直接使用浏览器访问 https://127.0.0.1:8000/images/like/，您将收到 HTTP 400 响应。
+
+> 如果发现在多个视图中重复相同的检查，请为视图构建自定义修饰器。
 
 ## 5.7 将 AJAX 分页添加到列表视图
+
+
 
 ## 概要
 
@@ -1697,3 +1895,4 @@ Django 还提供了一个只允许 GET 请求的require_GET装饰器和一个req
 [1]: https://docs.djangoproject.com/en/4.0/topics/db/examples/many_to_many/ "ManyToManyFiled"
 [2]: https://docs.python.org/zh-cn/3/library/urllib.html "urllib 文档"
 [3]: https://github.com/SmileyChris/easy-thumbnails "easy-thumbnails Github"
+[4]: https://docs.djangoproject.com/en/4.0/ref/csrf/#ajax "django csrf doucmente"
