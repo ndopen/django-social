@@ -1885,10 +1885,138 @@ from django.http import HttpResponseBadRequest
 > 如果发现在多个视图中重复相同的检查，请为视图构建自定义修饰器。
 
 ## 5.7 将 AJAX 分页添加到列表视图
+接下来，您需要列出网站上所有已添加书签的图像。您将使用 AJAX 分页来构建无限滚动功能。无限滚动是通过在用户滚动到页面底部时自动加载下一个结果来实现的。
 
+让我们实现一个图像列表视图，该视图将处理标准浏览器请求和 AJAX 请求，包括分页。当用户最初加载图像列表页时，将显示图像的第一页。当他们滚动到页面底部时，您将通过 AJAX 加载下一页的项目并将其附加到主页的底部。
 
+同一视图将同时处理标准分页和 AJAX 分页。编辑图像应用进程的 views.py 文件并向其添加以下代码：
+```python
+@login_required
+def image_list(request):
+    images = Image.objects.all()
+    paginator = Paginator(images, 8)
+    page = request.GET.get('page')
+    try:
+        images = paginator.page(page)
+    except PageNotAnInteger:
+        images = paginator.page(1)
+    except EmptyPage:
+        if is_ajax(request=request):
+            return HttpResponse('')
+        images = paginator.page(paginator.num_pages)
+
+    if is_ajax(request=request):
+        return render(request, 'images/image/list_ajax.html', {'section': 'images', 'images': images})
+    
+    return render(request, 'images/image/list.html', {'section': 'images', 'images': images}) 
+```
+在此视图中，您将创建一个 QuerySet 以返回数据库中的所有图像。然后，构建一个分页器对象来对结果进行分页，每页检索八个图像。如果请求的页面超出范围，则会收到 EmptyPage 异常。如果是这种情况，并且请求是通过 AJAX 完成的，则返回一个空的 HttpResponse，它将帮助您停止客户端的 AJAX 分页。将结果呈现到两个不同的模板：
+- 对于 AJAX 请求，呈现list_ajax.html模板。此模板将仅包含所请求页面的图像。
+- 对于标准请求，请呈现list.html模板。此模板将扩展 base.html 模板以显示整个页面，并将包括list_ajax.html模板以包含图像列表
+
+编辑图像应用进程的 urls.py 文档，并向其添加以下 URL 模式：
+```python
+path('', views.image_list, name='list')
+```
+
+最后，您需要创建此处提到的模板。在 *images/image/* 模板目录中，创建一个新模板并将其命名为 *list_ajax.html*。向其添加以下代码：
+```html
+{% load thumbnail %}
+
+{% for image in images %}
+    <div class="image">
+        <a href="{{ image.get_absolute_url }}">
+            {% thumbnail image.image 300x300 crop="smart" as im %}
+            <a href="{{ image.get_absolute_url }}">
+                <img src="{{ im.url }}">
+            </a>
+        </a>
+
+        <div class="info">
+            <a href="{{ image.get_absolute_url }}" class="title">
+                {{image.title}}
+            </a>
+        </div>
+    </div>
+{% endfor %}
+```
+
+上述模板显示图像列表。您将使用它来返回 AJAX 请求的结果。在此代码中，循环访问图像并为每个图像生成方形缩略图。将缩略图的大小规范化为 300x300 像素。您还可以使用智能裁剪选项。此选项表示必须通过从熵最少的边缘删除切片来增量裁剪图像到请求的大小
+
+在同一目录中创建另一个模板并将其命名为 `list.html`。向其添加以下代码：
+```html
+{% extends 'base.html' %}
+
+{% block title %} Images bookmarked {% endblock %}
+
+{% block content %}
+    <h1>Images Bookmarked</h1>
+    <div id="image-list">
+        {% include "images/image/list_ajax.html" %}
+    </div>
+{% endblock %}
+```
+
+列表模板扩展了`base.html`。为避免重复代码，请包含用于显示图像的`list_ajax.html`模板。`list.html模`板将保存 JavaScript 代码，用于在滚动到页面底部时加载其他页面。
+
+将以下代码添加到 list.html模板：
+```js
+{% block domready %}
+  var page = 1;
+  var empty_page = false;
+  var block_request = false;
+
+  $(window).scroll(function() {
+    var margin = $(document).height() - $(window).height() - 200;
+    if  ($(window).scrollTop() > margin && empty_page == false &&
+    block_request == false) {
+     block_request = true;
+      page += 1;
+      $.get('?page=' + page, function(data) {
+       if(data == '') {
+          empty_page = true;
+        }
+        else {
+          block_request = false;
+          $('#image-list').append(data);
+        }
+      });
+    }
+  });
+{% endblock %}
+```
+
+前面的代码提供了无限滚动功能。您可以在 base.html 模板中定义的 domready 块中包含 JavaScript 代码。 代码如下：
+1. 您可以定义以下变量：
+    - *page* 存储当前页码。
+    - *empty_page* 允许您知道用户是否在最后一页并检索空页。一旦获得空页面，您将停止发送其他 AJAX 请求，因为您将假定没有更多结果。
+    - *block_request* 防止在 AJAX 请求正在进行时发送其他请求。
+
+2. 您可以使用 $（window）.scroll（） 来捕获滚动事件，并为其定义一个处理进程函数。
+3. 计算边距变量以获取总文档高度与窗口高度之间的差异，因为这是供用户滚动的剩余内容的高度。从结果中减去值 200，以便在用户距离页面底部不到 200 像素时加载下一页
+4. 仅当没有执行其他 AJAX 请求（block_request必须为 false）并且用户未到达结果的最后一页（empty_page 也是 false）时，才发送 AJAX 请求。
+5. 将 block_request 设置为 true 是为了避免滚动事件触发其他 AJAX 请求的情况，并将页计数器增加 1，以便检索下一页。
+6. 使用 $.get（） 执行 AJAX GET 请求，并在名为 data 的变量中接收 HTML 响应。以下是两种方案：
+    + 响应没有内容：您到了结果的末尾，并且没有更多要加载的页面。将empty_page设置为 true 可防止其他 AJAX 请求。
+    + 响应包含数据：将数据追加到具有图像列表 ID 的 HTML 元素。页面内容垂直展开，当用户接近页面底部时追加结果。
+
+在浏览器中打开 https://127.0.0.1:8000/images/。您将看到到目前为止已添加书签的图像列表。
+
+滚动到页面底部以加载其他页面。确保使用书签为八个以上的图像添加书签，因为这是每页显示的图像数量。请记住，您可以使用Firebug或类似的工具来跟踪AJAX请求并调试JavaScript代码。
+
+最后，编辑帐户应用进程的base.html模板，并添加主菜单的图像项的URL，如下所示：
+```python
+<li {% if section == 'images' %} class='deshboard' {% endif %}>
+    <a href="{% url 'images:list' %}"> IMAGES </a>
+</li>
+```
+现在，您可以从主菜单访问图像列表。
 
 ## 概要
+在本章中，您创建了具有多对多关系的模型，并学习了如何自定义表单的行为。你使用 jQuery 和 Django 构建了一个 JavaScript 书签，将其他网站的图片分享到你的网站中。本章还介绍了使用简易缩略图库创建图像缩略图。最后，您使用 jQuery 实现了 AJAX 视图，并将 AJAX 分页添加到图像列表视图中。
+
+在下一章中，您将学习如何构建关注系统和活动流。您将使用泛型关系、信号和非规范化。你还将学习如何在Django中使用Redis。
+
 
 
 
