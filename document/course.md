@@ -2017,7 +2017,229 @@ path('', views.image_list, name='list')
 
 在下一章中，您将学习如何构建关注系统和活动流。您将使用泛型关系、信号和非规范化。你还将学习如何在Django中使用Redis。
 
+# Chapter 6 跟踪用户操作
+在上一章中，您使用 jQuery 在项目中实现了 AJAX 视图，并构建了一个 JavaScript 书签来共享平台上其他网站的内容。
+在本章中，您将学习如何构建关注系统和创建用户活动流。您还将发现 Django 信号的工作原理，并将 Redis 的快速 I/O 存储集成到您的项目中以存储项目视图。
+本章将介绍以下几点：
+- 构建关注系统
+- 使用中间模型创建多对多关系
+- 创建活动流应用进程
+- 向模型添加泛型关系
+- 优化相关对象的查询集
+- 使用信号对计数进行非规范化
+- 在 Redis 中存储项目视图
 
+## 6.1 构建关注系统
+让我们在你的项目中构建一个跟随系统。这意味着您的用户将能够相互关注并跟踪其他用户在平台上共享的内容。用户之间的关系是多对多关系：一个用户可以关注多个用户，而他们又可以被多个用户关注。
+
+### 6.1.1 使用中间模型创建多对多关系
+在前面的章节中，你通过将 ManyToManyField 添加到其中一个相关模型中并让 Django 为该关系创建数据库表来创建多对多关系。这适用于大多数情况，但有时您可能需要为关系创建中介模型。如果要存储关系的其他信息（例如，创建关系的日期或描述关系性质的字段），则必须创建中间模型。
+
+让我们创建一个中间模型来构建用户之间的关系。使用中间模型有两个原因：
+- 您正在使用 Django 提供的用户模型，并且希望避免更改它
+- 您希望存储创建关系的时间
+
+编辑帐户应用进程的 models.py 文档，并向其中添加以下代码：
+```python
+class Contact(models.Model):
+    """followers 中间模型"""
+    user_from = models.ForeignKey('auth.User', related_name='rel_from_set', on_delete=models.CASCADE)
+    user_to = models.ForeignKey('auth.User', related_name='rel_to_set', on_delete=models.CASCADE)
+    created = models.DateTimeField(auto_now_add=True, db_index=True)
+    class Meta:
+        ordering=('-created',)
+
+    def __str__(self):
+        return f'{self.user_from} follows {self.user_to}'
+```
+
+上面的代码显示了将用于用户关系的联系人模型。它包含以下字段：
+ - **user_from** 创建关系的用户的外键
+ - **user_to** 被关注的用户的外键
+ - **created** 具有 auto_now_add=True 的日期时间字段，用于存储创建关系的时间
+
+将在“外键”字段上自动创建数据库索引。您可以使用 db_index=True 为创建的字段创建数据库索引。这将提高按此字段对查询集进行排序时的查询性能。
+
+使用 ORM，您可以为用户 user1 创建关系，关注另一个用户 user2，如下所示：
+```python
+user1 = User.objects.get(id=1)
+user2 = User.objects.get(id=2)
+Contact.objects.create(user_from = user1, user_to = user2)
+```
+
+相关经理（rel_from_set和rel_to_set）将返回联系人模型的查询集。为了从用户模型访问关系的端，用户最好包含一个 ManyToManyField，如下所示：
+```python
+following = models.ManyToManyField('self', through=Contact, related_name='followers', symmetrical=False)
+```
+在前面的示例中，你告诉 Django 通过将 through=Contact 添加到 ManyToManyField 来使用你的自定义中间模型来处理关系。这是从用户模型到自身的多对多关系;您在 ManyToManyField 字段中引用“self”以创建与同一模型的关系。
+
+编辑帐户应用进程的 models.py 文档并添加以下行：
+```python
+user_model = get_user_model()
+user_model.add_to_class('following', models.ManyToManyField('self', through=Contact, related_name='followers', symmetrical=False))
+```
+
+在上面的代码中，使用 Django 提供的泛型函数 `get_user_model（）` 检索用户模型。你使用 Django 模型的 `add_to_class（）` 方法来修补用户模型。请注意，使用 `add_to_class（）` 不是向模型添加字段的推荐方法。但是，在这种情况下，您可以利用它来避免创建自定义用户模型，从而保留 Django 内置用户模型的所有优点。
+
+您还可以简化使用 Django ORM 和 user.followers.all（） 和 user.follow.all（） 检索相关对象的方式。您可以使用中间联系人模型并避免涉及其他数据库联接的复杂查询，就像在自定义配置文档模型中定义关系一样。此多对多关系的表将使用联系人模型创建。因此，动态添加的 ManyToManyField 并不意味着 Django 用户模型的任何数据库更改。
+
+请记住，在大多数情况下，最好将字段添加到您之前创建的配置文档模型，而不是猴子修补用户模型。理想情况下，你不应该改变现有的 Django 用户模型。Django 允许你使用自定义用户模型。如果要使用自定义用户模型，请查看 https://docs.djangoproject.com/en/4.0/topics/auth/customizing/#specifying-a-custom-user-model 中的文档。
+
+请注意，该关系包括`symmetrical=False`。当你在模型中定义一个 ManyToManyField 来创建与自身的关系时，Django 强制该关系是对称的。在本例中，您正在设置 `symmetrical=False` 来定义非对称关系（如果我关注您，并不意味着您会自动关注我）。
+
+> 将中间模型用于多对多关系时，某些相关管理器的方法将被禁用，例如 add（）、create（） 或 remove（）。您需要改为创建或删除中间模型的实例。
+
+运行以下命令以生成帐户应用进程的初始迁移：
+```shell
+python manage.py makemigrations account
+```
+
+现在，运行以下命令以将应用进程与数据库同步：
+```shell
+python manage.py migrate account
+```
+
+联系人模型现在已同步到数据库，您可以在用户之间创建关系。但是，您的网站尚不提供浏览用户或查看特定用户个人资料的方法。让我们为用户模型构建列表和详细信息视图。
+
+### 6.1.2 为用户配置文档创建列表和详细信息视图
+打开帐户应用进程的 views.py 文档，并向其中添加以下代码：
+```python
+@login_required
+def user_list(request):
+    """this user list"""
+    users = User.objects.filter(is_active=True)
+
+    return render(request, 'account/user/list.html', {"section":"people", "users": users})
+
+
+@login_required
+def user_detail(request, username):
+    """the user detail page"""
+    user = get_object_or_404(User, username=username, is_active=True)
+
+    return render(request, 'account/user/detail.html', {'section': 'people', 'user': user})
+```
+这些是用户对象的简单列表和详细信息视图。user_list视图获取所有活动用户。Django 用户模型包含一个 is_active 标志，用于指定用户帐户是否被视为活动。按 is_active=True 筛选查询以仅返回活动用户。此视图返回所有结果，但您可以通过添加分页来改进它，方法与image_list视图相同。
+
+user_detail视图使用 get_object_or_404（） 快捷方式检索具有给定用户名的活动用户。如果未找到具有给定用户名的活动用户，则视图将返回 HTTP 404 响应
+
+编辑帐户应用进程的 urls.py 文档，并为每个视图添加 URL 模式，如下所示
+```python
+path('users/', views.user_list, name='user_list'),
+path('users/<username>/', views.user_detail, name='user_detail')
+```
+您将使用`user_detail URL` 模式为用户生成规范 URL。您已经在模型中定义了一个` get_absolute_url（）` 方法来返回每个对象的规范 URL。指定模型 URL 的另一种方法是将ABSOLUTE_URL_OVERRIDES设置添加到项目中。
+```python
+from django.urls import reverse_lazy
+ABSOLUTE_URL_OVERRIDES = {
+    'auth.user': lambda u: reverse_lazy('user_detail',  args=[u.username])
+}
+```
+
+Django 将 `get_absolute_url（）` 方法动态添加到`ABSOLUTE_URL_OVERRIDES`设置中出现的任何模型中。此方法返回设置中指定的给定模型的相应 URL。返回给定用户的user_detail URL。现在，您可以在用户实例上使用 get_absolute_url（） 来检索其相应的 URL。
+
+使用 python manage.py shell 命令打开 Python shell，并运行以下代码进行测试：
+```shell
+from django.contrib.auth.models import User
+user = User.objects.latest('id')
+str(user.get_absolute_url())
+```
+您需要为刚生成的视图创建模板。将以下目录和文档添加到帐户应用进程的templates/account/目录中：
++ /user/
+    detail.html/
+    list.html/
+
+编辑 `account/user/list.html` 模板并向其添加以下代码：
+```html
+{% extends 'base.html' %}
+{% load thumbnail %}
+{% block title %}People{% endblock  %}
+
+{% block content %}
+<h1>People</h1>
+<div class="people-list">
+    {% for user in users %}
+        <div class="user">
+            <a href="{{user.get_absolute_url}}">
+                <img src="{% thumbnail user.profile.photo 180x180 %}" alt="" srcset="">
+            </a>
+
+            <div class="info">
+                <a href="{{user.get_obsolute_url}}" class="title">
+                    {{user.get_full_name}}
+                </a>
+            </div>
+        </div>
+    {% endfor %}
+
+</div>
+{% endblock  %}
+```
+
+上述模板允许您列出网站上的所有活动用户。您循环访问给定的用户，并使用简易缩略图中的 {% thumbnail %} 模板标记来生成个人资料图像缩略图
+
+打开项目的 `base.html` 模板，并在以下菜单项的 href 属性中包含`user_list` URL：
+```html
+<li {% if section == 'people' %} class='deshboard' {% endif %}>
+    <a href="{% url 'user_list' %}"> PEOPLE</a>
+</li>
+```
+
+请记住，如果在生成缩略图时遇到任何困难，可以将 THUMBNAIL_DEBUG = True 添加到 settings.py 文档中，以便在 shell 中获取调试信息。
+
+编辑帐户应用进程的 **account/user/detail.html** 模板，并向其添加以下代码：
+```html
+{% extends 'base.html' %}
+{% block title %} {{user.get_full_name}} {% endblock  %}
+{% load thumbnail %}
+
+{% block content %}
+    <h1> {{user.get_full_name}} </h1>
+
+    <div class="profile-info">
+        <img src="{% thumbnail user.profile.photo 180x180%}" class="user-detail">
+    </div>
+
+    {% with total_followers as user.followers.count %}
+    
+    <span class="count">
+        <span class="tatal">
+            {{total_followers}}
+        </span>
+        followers {{total_followers|pluralize}}
+    </span>
+
+    <a href="#" data-id="{{ user.id }}", data-action="{% if request.user in user.followers.all %}un{% endif %}follow" class="follow button">
+        {% if request.user not in user.followers.all %}
+        follow
+        {% else %}
+        Unfollow
+        {% endif %}
+    </a>
+
+    <div class="image-container" id="image-list">
+        {% include "images/image/list_ajax.html" with images=user.images_created.all %}
+    </div>
+
+    {% endwith %}
+{% endblock  %}
+```
+确保没有模板标签拆分为多行;Django 不支持多行标签。
+
+在详细模板中，显示用户配置文档并使用 {% 缩略图 %}模板标记显示配置文档图像。您显示关注者的总数以及用于关注或取消关注用户的链接。执行 AJAX 请求以关注/取消关注特定用户。您可以向 &lt;a&gt;HTML 元素添加数据 ID 和数据操作属性，包括用户 ID 和单击链接元素时要执行的初始操作 - 关注或取消关注，这取决于请求页面的用户是否是该其他用户的关注者（视情况而定）。显示由用户添加书签的图像，包括 images/image/list_ajax.html 模板。
+
+### 6.1.3 构建 AJAX 视图以关注用户
+
+
+
+## 6.2 构建通用活动流应用进程
+
+
+## 6.3 使用信号对计数进行非规范化
+
+## 6.4 使用 Redis 存储项目视图
+
+## 概述
 
 
 [1]: https://docs.djangoproject.com/en/4.0/topics/db/examples/many_to_many/ "ManyToManyFiled"
