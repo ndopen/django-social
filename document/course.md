@@ -2229,11 +2229,98 @@ str(user.get_absolute_url())
 在详细模板中，显示用户配置文档并使用 {% 缩略图 %}模板标记显示配置文档图像。您显示关注者的总数以及用于关注或取消关注用户的链接。执行 AJAX 请求以关注/取消关注特定用户。您可以向 &lt;a&gt;HTML 元素添加数据 ID 和数据操作属性，包括用户 ID 和单击链接元素时要执行的初始操作 - 关注或取消关注，这取决于请求页面的用户是否是该其他用户的关注者（视情况而定）。显示由用户添加书签的图像，包括 images/image/list_ajax.html 模板。
 
 ### 6.1.3 构建 AJAX 视图以关注用户
+让我们创建一个简单的视图来关注/取消关注使用 AJAX 的用户。编辑帐户应用进程的 views.py 文档，并向其添加以下代码：
+```python
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+from common.decorators import ajax_required
+from .models import Contact
+@ajax_required
+@require_POST
+@login_required
+def user_follow(request):
+    """the user folowers"""
+    user_id = request.POST.get('id')
+    action = request.POST.get('action')
 
+    if user_id and action:
+        try:
+            user = User.objects.get(id = user_id)
+            if action == 'follow':
+                Contact.objects.get_or_create(user_from = request.user, user_to = user)
+            else:
+                Contact.objects.filter(user_from = request.user, user_to=user).delete()
+
+            return JsonResponse({'status' : 'ok'})
+        except User.DoesNotExist:
+            return JsonResponse({'status' : 'error'})
+
+    return JsonResponse({'status': 'error'})
+```
+`user_follow`视图与您之前创建的`image_like`视图非常相似。由于您正在为用户的多对多关系使用自定义中介模型，因此 ManyToManyField 自动管理器的默认 add（） 和 remove（） 方法不可用。您可以使用中间联系人模型来创建或删除用户关系。
+
+编辑帐户应用进程的 urls.py 文档，并向其添加以下 URL 模式：
+```python
+path('users/follow/', views.user_follow, name='user_follow'),
+```
+
+确保将上述模式放在 user_detail URL 模式之前。否则，对 /users/follow/ 的任何请求都将与user_detail模式的正则表达式匹配，并且将改为执行该视图。请记住，在每个HTTP请求中，Django都会按照出现的顺序根据每个模式检查请求的URL，并在第一次匹配时停止。
+
+编辑帐户应用进程的 `user/detail.html` 模板，并向其追加以下代码：
+```python
+{% block domready %}
+  $('a.follow').click(function(e){
+    e.preventDefault();
+    $.post('{% url "user_follow" %}',
+      {
+        id: $(this).data('id'),
+        action: $(this).data('action')
+      },
+      function(data){
+        if (data['status'] == 'ok') {
+          var previous_action = $('a.follow').data('action');
+
+          // toggle data-action
+          $('a.follow').data('action',
+            previous_action == 'follow' ? 'unfollow' : 'follow');
+          // toggle link text
+          $('a.follow').text(
+            previous_action == 'follow' ? 'Unfollow' : 'Follow');
+
+          // update total followers
+          var previous_followers = parseInt(
+            $('span.count .total').text());
+          $('span.count .total').text(previous_action == 'follow' ?
+          previous_followers + 1 : previous_followers - 1);
+        }
+      }
+    );
+  });
+{% endblock %}
+```
+前面的代码是执行 AJAX 请求以关注或取消关注特定用户以及切换关注/取消关注链接的 JavaScript 代码。您可以使用 jQuery 执行 AJAX 请求，并根据 HTML &lt;a&gt; 元素的先前值设置数据操作属性和文本。执行 AJAX 操作时，您还会更新页面上显示的关注者总数.
 
 
 ## 6.2 构建通用活动流应用进程
 
+### 6.2.1 使用内容类型框架
+
+### 6.2.2 向模型添加泛型关系
+
+### 6.2.3 避免活动流中的重复操作
+
+### 6.2.4 将用户操作添加到动态
+
+### 6.2.5 显示活动流
+
+
+### 6.2.6 优化涉及相关对象的查询集
+
+#### 使用 select_related（）
+
+#### 使用 prefetch_related（）
+
+### 6.2.7 为操作创建模板
 
 ## 6.3 使用信号对计数进行非规范化
 
