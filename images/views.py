@@ -9,6 +9,11 @@ from django.http import JsonResponse, HttpResponse
 from common.decorators import ajax_required, is_ajax
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from actions.utils import create_action
+import redis
+from django.conf import settings
+
+# Settings RedisServer
+r = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=settings.REDIS_DB)
 
 @login_required
 def image_create(request):
@@ -40,7 +45,13 @@ def image_create(request):
 def image_detail(requset, id, slug):
     """image detail function"""
     image = get_object_or_404(Image, id=id, slug=slug)
-    return render(requset, 'images/image/detail.html', {'image':image, 'section' : 'images'})
+    # Use Redis store Image Number of views
+    total_views = r.incr(f'image:{image.id}:views')
+
+    # Uincrement image ranking by 1
+    r.zincrby('image_ranking', 1, image.id)
+
+    return render(requset, 'images/image/detail.html', {'image':image, 'section' : 'images', 'total_views': total_views})
 
 @login_required
 @require_POST
@@ -81,3 +92,16 @@ def image_list(request):
         return render(request, 'images/image/list_ajax.html', {'section': 'images', 'images': images})
     
     return render(request, 'images/image/list.html', {'section': 'images', 'images': images}) 
+
+@login_required
+def image_ranking(request):
+    '''image ranking views'''
+
+    # get image ranking dictionary
+    image_ranking = r.zrange('image_ranking', 0, -1, desc=True)[:10]
+    image_ranking_ids = [int(id) for id in image_ranking]
+    # get most viewed images
+    most_viewed = list(Image.objects.filter(id__in=image_ranking_ids))
+    most_viewed.sort(key=lambda x: image_ranking_ids.index(x.id))
+
+    return render(request, 'images/image/ranking.html', {'section':'images', 'most_viewed': most_viewed})
